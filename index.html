@@ -4,9 +4,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <meta name="description" content="本地飞行模拟器 — 民航客机飞行模拟 (含空客 A350)">
-  <title>飞行模拟器 · Flight Simulator</title>
-  <link rel="icon" href="data:,">
+  <meta name="description" content="天际航线 SkyRoute — 网页版民航客机飞行模拟器">
+  <title>天际航线 SkyRoute</title>
+  <link rel="icon" href="assets/brand/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/brand/skyroute_app_icon_192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/brand/skyroute_app_icon_180.png">
+  <script>
+    // PWA 清单只在 http(s) 下加载 (file:// 打开时浏览器会因跨域拒绝清单并报错)
+    if (/^https?:/.test(location.protocol)) document.write('<link rel="manifest" href="assets/brand/manifest.webmanifest">');
+  </script>
+  <meta name="theme-color" content="#0b2a5b">
   <link rel="stylesheet" href="css/style.css">
 </head>
 
@@ -19,16 +27,7 @@
   <!-- ================= 载入画面 ================= -->
   <div id="loading" class="hidden">
     <div class="load-box">
-      <div class="load-logo">
-        <svg viewBox="0 0 120 60" width="120" height="60" aria-hidden="true">
-          <path d="M4 34 L100 12 L114 20 L104 30 L60 36 L44 52 L34 52 L42 34 Z"
-            fill="none" stroke="#35c9ff" stroke-width="2" stroke-linejoin="round" />
-          <circle cx="70" cy="26" r="9" fill="none" stroke="#35c9ff" stroke-width="2" />
-          <circle cx="70" cy="26" r="3" fill="#35c9ff" />
-        </svg>
-      </div>
-      <div class="load-title">飞行模拟器</div>
-      <div class="load-sub">FLIGHT SIMULATOR</div>
+      <div class="load-logo"><span class="brand-logo-card"><img src="assets/brand/skyroute_logo_transparent.png" alt="天际航线 SkyRoute"></span></div>
       <div class="load-spinner"><i></i><i></i><i></i></div>
       <div id="loading-msg">正在初始化…</div>
     </div>
@@ -39,8 +38,8 @@
     <div class="menu-inner">
       <header class="menu-head">
         <div class="menu-brand">
-          <h1>飞行模拟器</h1>
-          <p>FLIGHT SIMULATOR · 民航客机飞行训练</p>
+          <h1><span class="brand-logo-card"><img src="assets/brand/skyroute_logo_transparent.png" alt="天际航线 SkyRoute"></span><span class="sr-only">天际航线 SkyRoute</span></h1>
+          <p>SKYROUTE · 民航客机飞行模拟</p>
         </div>
         <div class="menu-version" id="menu-version"></div>
       </header>
@@ -99,6 +98,23 @@
             <label for="payload-slider">业载 <b id="payload-value">70%</b></label>
             <input type="range" id="payload-slider" min="0" max="1" step="0.01" value="0.70">
           </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="online-scenery">联网地景</label>
+              <select id="online-scenery" title="在线加载真实地形高程与卫星影像 (需要联网; 离线时自动回退到内置地形)">
+                <option value="1">开 (真实地形 + 卫星影像)</option>
+                <option value="0">关 (内置程序化地形)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="imagery-select">影像源</label>
+              <select id="imagery-select" title="影像许可见 致谢 / 许可">
+                <option value="s2-2016">Sentinel-2 2016 (CC BY)</option>
+                <option value="s2-2024">Sentinel-2 2024 (仅非商业)</option>
+                <option value="gibs">NASA Blue Marble (低清)</option>
+              </select>
+            </div>
+          </div>
           <div class="field">
             <label for="timescale-select">时间倍率</label>
             <select id="timescale-select">
@@ -114,7 +130,8 @@
       <footer class="menu-foot">
         <div id="menu-summary" class="menu-summary"></div>
         <div class="menu-actions">
-          <button id="credits-btn" class="btn btn-ghost" title="3D 模型来源与许可">致谢 / 许可</button>
+          <button id="credits-btn" class="btn btn-ghost" title="3D 模型、地景数据来源与许可">致谢 / 许可</button>
+          <button id="joy-menu-btn" class="btn btn-ghost" title="摇杆 / 侧杆 / 油门台映射">摇杆设置</button>
           <button id="quick-start" class="btn btn-ghost">快速开始（默认起飞）</button>
           <button id="start-flight" class="btn btn-primary">开始飞行 →</button>
         </div>
@@ -137,7 +154,12 @@
       </div>
       <div class="tb-right">
         <span id="perf" class="tb-perf">—</span>
-        <button id="help-btn" class="tb-btn" title="操作说明 (F1)">?</button>
+        <span class="view-ctl" title="切换视角 (C 键循环, Shift+C 反向)">
+          <button id="view-btn" class="tb-btn tb-wide">🎥 <span id="view-name">驾驶舱</span></button><select id="view-select" class="tb-select" aria-label="选择视角"></select>
+        </span>
+        <button id="yoke-btn" class="tb-btn tb-wide" title="鼠标驾驶杆: 光标相对屏幕中心 = 杆量 (M)">🖱 鼠标杆</button>
+        <button id="joy-btn" class="tb-btn tb-wide" title="摇杆设置 (Gamepad API)">🕹 摇杆</button>
+        <button id="help-btn" class="tb-btn" title="操作说明 (F1 / ?)">?</button>
         <button id="panel-toggle" class="tb-btn" title="显示/隐藏仪表 (Tab)">▤</button>
         <button id="ui-toggle" class="tb-btn" title="隐藏界面 (`)">◻</button>
       </div>
@@ -388,7 +410,7 @@
   <!-- ================= 致谢 / 资源许可 (beta 0.2) ================= -->
   <div id="credits-overlay" class="overlay hidden">
     <div class="overlay-box overlay-box-wide">
-      <h2>致谢 / 资源许可</h2>
+      <h2>关于 / 致谢 / 资源许可</h2>
       <p class="ov-sub">CREDITS &amp; ASSET LICENSES</p>
       <div id="credits-list" class="credits-list"></div>
       <div class="ov-actions">
@@ -405,25 +427,27 @@
 
       <div class="help-grid">
         <div class="help-col">
-          <h3>飞行操纵</h3>
+          <h3>飞行操纵（GeoFS 风格默认键位）</h3>
           <table class="help-table">
-            <tr><td><kbd>W</kbd> / <kbd>S</kbd></td><td>俯仰（抬头 / 低头）</td></tr>
-            <tr><td><kbd>A</kbd> / <kbd>D</kbd></td><td>横滚（左 / 右）</td></tr>
-            <tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>方向舵 / 前轮转向</td></tr>
-            <tr><td><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></td><td>同上（方向键）</td></tr>
-            <tr><td><kbd>Shift</kbd> / <kbd>Ctrl</kbd></td><td>油门 加 / 减</td></tr>
+            <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>推杆低头 / 拉杆抬头（也可 <kbd>W</kbd>/<kbd>S</kbd>）</td></tr>
+            <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>左 / 右横滚（也可 <kbd>A</kbd>/<kbd>D</kbd>）</td></tr>
+            <tr><td><kbd>,</kbd> / <kbd>.</kbd></td><td>方向舵 / 前轮转向（小键盘 <kbd>0</kbd>/<kbd>Enter</kbd>，或 <kbd>Q</kbd>/<kbd>E</kbd>）</td></tr>
+            <tr><td><kbd>M</kbd></td><td>鼠标驾驶杆 开/关（光标相对屏幕中心 = 杆量）</td></tr>
+            <tr><td><kbd>PgUp</kbd>/<kbd>PgDn</kbd> 或 <kbd>+</kbd>/<kbd>-</kbd></td><td>油门 加 / 减</td></tr>
             <tr><td><kbd>8</kbd> / <kbd>9</kbd> / <kbd>0</kbd></td><td>TOGA / 爬升推力 / 慢车</td></tr>
-            <tr><td><kbd>Space</kbd></td><td>机轮刹车</td></tr>
-            <tr><td><kbd>P</kbd></td><td>停留刹车</td></tr>
+            <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>升降舵配平 低头 / 抬头</td></tr>
+            <tr><td><kbd>B</kbd>（按住）</td><td>机轮刹车</td></tr>
+            <tr><td><kbd>Shift</kbd>+<kbd>B</kbd></td><td>停留刹车</td></tr>
+            <tr><td><kbd>空格</kbd> / <kbd>P</kbd></td><td>暂停 / 继续</td></tr>
           </table>
 
           <h3>飞机系统</h3>
           <table class="help-table">
             <tr><td><kbd>G</kbd></td><td>起落架 收/放</td></tr>
-            <tr><td><kbd>F</kbd> / <kbd>V</kbd></td><td>襟翼 收一档 / 放一档</td></tr>
+            <tr><td><kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>F</kbd></td><td>襟翼 收一档 / 放一档（<kbd>V</kbd> 也可放）</td></tr>
             <tr><td><kbd>X</kbd></td><td>减速板</td></tr>
-            <tr><td><kbd>A</kbd></td><td>APU 起动（配合 Ctrl+S 起动发动机）</td></tr>
             <tr><td><kbd>R</kbd></td><td>反推预位</td></tr>
+            <tr><td><kbd>Shift</kbd>+<kbd>A</kbd></td><td>APU 起动（配合 <kbd>Ctrl</kbd>+<kbd>S</kbd> 起动发动机）</td></tr>
           </table>
         </div>
 
@@ -432,29 +456,31 @@
           <table class="help-table">
             <tr><td><kbd>T</kbd></td><td>自动驾驶 接通 / 断开</td></tr>
             <tr><td><kbd>Y</kbd></td><td>自动油门</td></tr>
-            <tr><td><kbd>H</kbd></td><td>航向选择 HDG</td></tr>
-            <tr><td><kbd>J</kbd></td><td>水平导航 LNAV</td></tr>
-            <tr><td><kbd>L</kbd></td><td>高度选择 ALT</td></tr>
-            <tr><td><kbd>K</kbd></td><td>垂直速度 V/S</td></tr>
-            <tr><td><kbd>U</kbd></td><td>FLCH 速度优先</td></tr>
-            <tr><td><kbd>I</kbd></td><td>APPR 进近预位</td></tr>
-            <tr><td><kbd>O</kbd></td><td>SPD / MACH 切换</td></tr>
-            <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>目标高度 ∓1000 ft</td></tr>
-            <tr><td><kbd>;</kbd> <kbd>'</kbd></td><td>航向 ∓5°</td></tr>
-            <tr><td><kbd>-</kbd> <kbd>=</kbd></td><td>速度 ∓5 kt</td></tr>
+            <tr><td><kbd>H</kbd> / <kbd>J</kbd></td><td>航向 HDG / 水平导航 LNAV</td></tr>
+            <tr><td><kbd>L</kbd> / <kbd>K</kbd> / <kbd>U</kbd></td><td>高度 ALT / 垂直速度 V/S / FLCH</td></tr>
+            <tr><td><kbd>I</kbd> / <kbd>O</kbd></td><td>APPR 进近预位 / SPD-MACH 切换</td></tr>
+            <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>目标高度 ∓</td></tr>
+            <tr><td><kbd>;</kbd> <kbd>'</kbd></td><td>航向 ∓</td></tr>
+            <tr><td><kbd>{</kbd> <kbd>}</kbd>（Shift+[ ]）</td><td>速度 ∓</td></tr>
           </table>
 
           <h3>视角与界面</h3>
           <table class="help-table">
-            <tr><td><kbd>C</kbd></td><td>循环切换视角</td></tr>
+            <tr><td><kbd>C</kbd> / <kbd>Shift</kbd>+<kbd>C</kbd></td><td>循环切换视角（驾驶舱 / 追踪 / 自由 …），也可点顶栏 🎥 视角按钮</td></tr>
             <tr><td><kbd>1</kbd>…<kbd>7</kbd></td><td>驾驶舱 / 机翼 / 追踪 / 塔台 / 环绕 / 自由 / 飞掠</td></tr>
-            <tr><td>鼠标右键拖拽</td><td>驾驶舱内环视</td></tr>
-            <tr><td><kbd>Tab</kbd></td><td>显示 / 隐藏仪表</td></tr>
-            <tr><td><kbd>`</kbd></td><td>显示 / 隐藏整个界面</td></tr>
-            <tr><td><kbd>F1</kbd></td><td>本说明</td></tr>
+            <tr><td>在画面上拖拽鼠标</td><td>环视（鼠标驾驶杆开启时用右键拖拽）；外部视角滚轮缩放</td></tr>
+            <tr><td>触摸</td><td>单指拖动 = 驾驶杆，第二根手指拖动 = 环视</td></tr>
+            <tr><td><kbd>Tab</kbd> / <kbd>`</kbd></td><td>显示/隐藏仪表 / 整个界面</td></tr>
+            <tr><td><kbd>?</kbd> 或 <kbd>F1</kbd></td><td>本说明</td></tr>
             <tr><td><kbd>Esc</kbd></td><td>暂停菜单</td></tr>
-            <tr><td><kbd>M</kbd></td><td>静音</td></tr>
+            <tr><td><kbd>Shift</kbd>+<kbd>M</kbd> / <kbd>Shift</kbd>+<kbd>H</kbd> / <kbd>Shift</kbd>+<kbd>T</kbd></td><td>静音 / HUD / 时间倍率</td></tr>
             <tr><td><kbd>F2</kbd></td><td>截图</td></tr>
+          </table>
+
+          <h3>手柄 / 摇杆</h3>
+          <table class="help-table">
+            <tr><td>Xbox/PS 手柄</td><td>左摇杆 = 杆，LB/RB = 方向舵，LT/RT = 油门，A 起落架，X 刹车，Y 视角，十字键 襟翼</td></tr>
+            <tr><td>飞行摇杆 / TCA</td><td>顶栏 🕹 摇杆 或 菜单"摇杆设置"中映射轴与按钮（AP 断开 / PTT / 刹车）；Chrome/Edge 需先按一下摇杆按钮</td></tr>
           </table>
         </div>
 
@@ -484,6 +510,26 @@
     </div>
   </div>
 
+  <!-- beta 0.3: 暂停提示 / 鼠标驾驶杆准星 / 摇杆设置 -->
+  <div id="pause-indicator" class="hidden">已暂停 — 按 空格 或 P 继续</div>
+  <div id="yoke-reticle" class="hidden"><div id="yoke-dot"></div></div>
+  <div id="ptt-indicator" class="hidden">📻 PTT</div>
+
+  <div id="joystick-overlay" class="overlay hidden">
+    <div class="overlay-box overlay-box-wide">
+      <h2>摇杆设置</h2>
+      <p class="ov-sub">JOYSTICK / SIDESTICK / THROTTLE QUADRANT (Gamepad API)</p>
+      <p class="joy-note">支持 Thrustmaster TCA 空客侧杆、TCA 油门台 (Quadrant) 及其他 HID 飞行摇杆。
+        <b>Chrome / Edge 需要先按一下摇杆上的任意按钮 (或动一下轴), 浏览器才会把设备报告给网页。</b>
+        设置自动保存在本机浏览器 (localStorage)。</p>
+      <div id="joy-devices" class="joy-devices"></div>
+      <div class="ov-actions">
+        <button id="joy-reset" class="btn btn-ghost">恢复默认</button>
+        <button id="joy-close" class="btn btn-primary">完成</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 启动日志 (调试/自动化测试用) -->
   <pre id="boot-log" aria-hidden="true"></pre>
 
@@ -508,6 +554,9 @@
   <script src="models/ac_b787_9.js"></script>
   <script src="js/aircraft3d.js"></script>
   <script src="js/environment.js"></script>
+  <script src="js/runways.js"></script>
+  <script src="js/scenery-online.js"></script>
+  <script src="js/joystick.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/scenarios.js"></script>
   <script src="js/camera.js"></script>

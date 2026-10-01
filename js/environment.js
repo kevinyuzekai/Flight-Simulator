@@ -1,5 +1,5 @@
 /* ==========================================================================
-   飞行模拟器 — 环境系统 (environment.js)
+   天际航线 SkyRoute — 环境系统 (environment.js)
    天空 / 太阳月亮 / 地形 LOD / 海洋 / 体积云 / 降水 / 城市与机场灯光
    依赖: utils.js (FS.Utils / FS.Noise / FS.Geo / FS.Atmo / FS.CONST), three.js r149
    全局命名空间: window.FS.Environment
@@ -540,8 +540,25 @@
    * 保证"看到的"和"撞到的"地形完全一致。
    */
   function applyFlatten(zones, x, z, h) {
+    // 圆形平整区按顺序混合; 跑道带状区 (seg) 统一加权: 落在某条跑道核心区内时该跑道权重为 1,
+    // 离开核心区按 150 m 指数衰减 —— 平行跑道之间不会互相"压歪"。
+    var segW = 0, segSum = 0, segA = 0;
     for (var i = 0; i < zones.length; i++) {
       var f = zones[i];
+      if (f.seg) {
+        if (x < f.minX || x > f.maxX || z < f.minZ || z > f.maxZ) continue;
+        var px = x - f.ax, pz = z - f.az;
+        var t = (px * f.dx + pz * f.dz) * f.invL2;
+        t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        var qx = px - f.dx * t, qz = pz - f.dz * t;
+        var ds = Math.sqrt(qx * qx + qz * qz);
+        if (ds >= f.inner + f.falloff) continue;
+        var ws = 1 - smoothstep((ds - f.inner) / f.falloff);
+        var a = Math.exp(-Math.max(0, ds - f.inner) / 150);
+        if (ws > segW) segW = ws;
+        segSum += a * f.h; segA += a;
+        continue;
+      }
       var dx = x - f.x, dz = z - f.z;
       var d2 = dx * dx + dz * dz;
       if (d2 < f.r2) {
@@ -550,6 +567,7 @@
         h = h + (f.h - h) * w;
       }
     }
+    if (segA > 0) h = h + (segSum / segA - h) * segW;
     return h;
   }
 
@@ -1366,7 +1384,7 @@
         var row = j * v;
         for (var i = 0; i < v; i++) {
           var x = this._cx - half + i * step;
-          var hh = model.rawHeight(x, z);
+          var hh = this.heightFn ? this.heightFn(x, z) : model.rawHeight(x, z);
           if (!isFinite(hh)) hh = sea;
           dep[row + i] = hh < sea ? (sea - hh) : 0;
         }
@@ -2226,7 +2244,7 @@
 
     // ---- 平整区 / 城市 / 机场 ----
     this._flatten = [];
-    this._flattenCap = 64;
+    this._flattenCap = 400;
     this.cityIndex = new CityIndex(8000);
     this._cities = [];
     this._cityDirty = true;
@@ -2245,7 +2263,7 @@
     this.terrain.urbanFn = function (x, z) { return self.cityIndex.factor(x, z); };
     // 云的 AGL -> MSL 探针
     this._groundProbe = function (px, pz) {
-      var hh = applyFlatten(self._flatten, px, pz, self.model.rawHeight(px, pz));
+      var hh = self._meshHeight(px, pz);
       return hh > 0 ? hh : 0;
     };
     // 渲染网格高度 = 碰撞高度 (含机场平整区, 但不截断海床, 保证水下地形可见)
@@ -2253,6 +2271,9 @@
       return self._meshHeight(px, pz);
     };
     this.ocean = new Ocean(scene, this.model, this.q, this.seaLevelM, this.seed);
+    this._heightProvider = null;
+    this._terrainSuspended = false;
+    this.ocean.heightFn = function (px, pz) { return self._meshHeight(px, pz); };
     this.atlas = buildPuffAtlas(this.seed);
     this.cloudLayers = [];
     for (var ci = 0; ci < 3; ci++) {
@@ -2404,7 +2425,7 @@
     if (warm) this._warmFrames--;
 
     // 1) 地形 LOD (限时重建)
-    this.terrain.update(this.focus.x, this.focus.z, this.q.buildBudgetMs, warm);
+    if (!this._terrainSuspended) this.terrain.update(this.focus.x, this.focus.z, this.q.buildBudgetMs, warm);
     this.stats.chunkMs = this.terrain.stats.lastMs;
 
     // 2) 海洋跟随 + 水深分帧刷新
@@ -3071,10 +3092,34 @@
 
   /** 网格/碰撞高度: 原始地形 + 机场平整区 (不截断海床) */
   Environment.prototype._meshHeight = function (x, z) {
+    // 联网地景 (scenery-online.js) 已覆盖时: 直接用其显示网格的高度 (已含平整区)
+    if (this._heightProvider) {
+      var ho = this._heightProvider(x, z);
+      if (ho === ho) return ho;
+    }
     var h = this.model.rawHeight(x, z);
     if (!isFinite(h)) return this.seaLevelM;
     if (this._flatten.length) h = applyFlatten(this._flatten, x, z, h);
     return h;
+  };
+
+  /** 外部高度源 (联网地景). fn(x,z) 返回 NaN 表示该处未覆盖 -> 使用内置地形 */
+  Environment.prototype.setHeightProvider = function (fn) {
+    this._heightProvider = typeof fn === 'function' ? fn : null;
+  };
+  Environment.prototype.getHeightProvider = function () { return this._heightProvider || null; };
+  /** 显示/隐藏内置程序化地形 (隐藏时也暂停其 LOD 重建以省 CPU) */
+  Environment.prototype.setBuiltinTerrainVisible = function (on) {
+    on = !!on;
+    if (this.terrain.group.visible === on) return;
+    this.terrain.group.visible = on;
+    this._terrainSuspended = !on;
+    if (on) { this.terrain.markAllDirty(); this._warmFrames = Math.max(this._warmFrames, 20); }
+  };
+  Environment.prototype.isBuiltinTerrainVisible = function () { return this.terrain.group.visible; };
+  /** 让海面的近岸水深属性按当前高度源重算 */
+  Environment.prototype.markOceanDirty = function () {
+    this.ocean._needRefresh = true; this.ocean._row = 0;
   };
 
   /** 地面高度 (米 MSL) —— 纯函数, 与相机/LOD 无关; 海面返回 seaLevelM */
@@ -3154,6 +3199,53 @@
     this.terrain.markAllDirty();
     this._warmFrames = Math.max(this._warmFrames, 30);
     return this._flatten.length;
+  };
+
+  /**
+   * beta 0.3: 沿跑道 (A->B 线段) 的带状平整区。
+   * halfWidthM 以内完全等于 heightM, 再经 falloffM 平滑过渡到原地形。
+   */
+  Environment.prototype.addRunwayFlatten = function (ax, az, bx, bz, halfWidthM, heightM, falloffM) {
+    var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+    if (!(L2 > 1)) return this._flatten.length;
+    var inner = Math.max(10, finite(halfWidthM, 200)), fo = Math.max(10, finite(falloffM, 1200));
+    var pad = inner + fo;
+    if (this._flatten.length >= this._flattenCap) this._flatten.shift();
+    this._flatten.push({
+      seg: true, ax: ax, az: az, dx: dx, dz: dz, invL2: 1 / L2,
+      inner: inner, falloff: fo, h: finite(heightM, 0),
+      minX: Math.min(ax, bx) - pad, maxX: Math.max(ax, bx) + pad,
+      minZ: Math.min(az, bz) - pad, maxZ: Math.max(az, bz) + pad,
+      x: (ax + bx) / 2, z: (az + bz) / 2, r: Math.sqrt(L2) / 2 + pad, r2: 0
+    });
+    this.terrain.markAllDirty();
+    this._warmFrames = Math.max(this._warmFrames, 30);
+    return this._flatten.length;
+  };
+
+  /** 平整区列表 (只读, 供联网地景复用同一套平整逻辑) */
+  Environment.prototype.applyFlattenTo = function (x, z, h, mode) {
+    if (mode === 'online') {
+      // 联网地景: 真实高程本来就贴合机场, 只需把跑道带本身压平 (窄核心 + 短过渡);
+      // 不用内置地形的 4 km 圆形平整区, 否则沿海机场周围的海面会被"抬"成陆地。
+      if (this._flattenOnlineSrc !== this._flatten.length + ':' + (this._flatten[0] && this._flatten[0].h)) {
+        var zl = [], i;
+        for (i = 0; i < this._flatten.length; i++) {
+          var f = this._flatten[i];
+          if (!f.seg) continue;
+          var inner = f.inner, fo = 420, pad = inner + fo;   // 核心 = 跑道半宽 + 160 m (覆盖 z14 网格间距)
+          zl.push({
+            seg: true, ax: f.ax, az: f.az, dx: f.dx, dz: f.dz, invL2: f.invL2, inner: inner, falloff: fo, h: f.h,
+            minX: Math.min(f.ax, f.ax + f.dx) - pad, maxX: Math.max(f.ax, f.ax + f.dx) + pad,
+            minZ: Math.min(f.az, f.az + f.dz) - pad, maxZ: Math.max(f.az, f.az + f.dz) + pad
+          });
+        }
+        this._flattenOnline = zl;
+        this._flattenOnlineSrc = this._flatten.length + ':' + (this._flatten[0] && this._flatten[0].h);
+      }
+      return this._flattenOnline.length ? applyFlatten(this._flattenOnline, x, z, h) : h;
+    }
+    return this._flatten.length ? applyFlatten(this._flatten, x, z, h) : h;
   };
 
   Environment.prototype.clearFlattenZones = function () {

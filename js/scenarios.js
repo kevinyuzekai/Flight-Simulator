@@ -1,5 +1,5 @@
 /* ==========================================================================
-   飞行模拟器 — 飞行场景与检查单 (scenarios.js)
+   天际航线 SkyRoute — 飞行场景与检查单 (scenarios.js)
      · 训练场景 (冷舱启动 / 起飞 / 巡航 / ILS 进近 / 侧风落地 / 故障处置 ...)
      · 目标判定 (Objectives)
      · 标准操作检查单 (Checklist)
@@ -184,7 +184,7 @@
       nameEn: 'Cold & Dark',
       difficulty: '入门',
       description: '飞机完全断电停靠在停机坪。按照标准程序接通电源、启动 APU、起动发动机, 然后滑行至跑道。',
-      hint: '按 A 接通 APU, 等待 APU 可用后按 Ctrl+S 起动全部发动机。',
+      hint: '按 Shift+A 接通 APU, 等待 APU 可用后按 Ctrl+S 起动全部发动机。',
       setup: function (ctx) {
         var fm = ctx.fm, env = ctx.env;
         var ap = FS.Airports.byIcao(ctx.airportIcao) || FS.Airports.list[0];
@@ -224,7 +224,7 @@
       nameEn: 'Normal Takeoff',
       difficulty: '入门',
       description: '已在跑道头对正。襟翼已设定, 发动机运转中。推油门至起飞推力, 抬前轮, 按 V2 爬升。',
-      hint: '按 8 设定起飞推力 (TOGA), 达到 VR 后按 S 抬前轮。',
+      hint: '按 8 设定起飞推力 (TOGA), 达到 VR 后按 ↓ (或 S) 抬前轮。',
       setup: function (ctx) {
         var fm = ctx.fm;
         fm.setupForTakeoff(ctx.airportIcao, ctx.runwayIdent, {});
@@ -496,7 +496,7 @@
       nameEn: 'Free Flight',
       difficulty: '自由',
       description: '没有目标, 没有限制。从跑道起飞, 自由探索这个世界。',
-      hint: '按 C 切换视角, 按 T 暂停, 按 F1 查看操作说明。',
+      hint: '按 C 切换视角, 按 空格 或 P 暂停, 按 ? 或 F1 查看操作说明。',
       setup: function (ctx) {
         var fm = ctx.fm;
         fm.setupForTakeoff(ctx.airportIcao, ctx.runwayIdent, {});

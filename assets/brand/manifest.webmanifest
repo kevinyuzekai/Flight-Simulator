@@ -1,0 +1,29 @@
+{
+ "name": "天际航线 SkyRoute",
+ "short_name": "天际航线",
+ "start_url": "../../index.html",
+ "scope": "../../",
+ "display": "fullscreen",
+ "orientation": "landscape",
+ "background_color": "#0b2a5b",
+ "theme_color": "#0b2a5b",
+ "lang": "zh-CN",
+ "icons": [
+  {
+   "src": "skyroute_app_icon_192.png",
+   "sizes": "192x192",
+   "type": "image/png"
+  },
+  {
+   "src": "skyroute_app_icon_512.png",
+   "sizes": "512x512",
+   "type": "image/png"
+  },
+  {
+   "src": "skyroute_app_icon_1024.png",
+   "sizes": "1024x1024",
+   "type": "image/png",
+   "purpose": "any"
+  }
+ ]
+}

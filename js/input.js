@@ -1,5 +1,5 @@
 /* ==========================================================================
-   飞行模拟器 — 输入系统 (input.js)
+   天际航线 SkyRoute — 输入系统 (input.js)
      键盘 / 鼠标 / 游戏手柄 / 触摸
      采用"动作(Action)"抽象层, 便于重映射
    ========================================================================== */
@@ -12,20 +12,23 @@
   /* ---------------------------------------------------------------------
      默认按键映射
      --------------------------------------------------------------------- */
+  // beta 0.3: 默认改为 GeoFS 风格 (仅借鉴按键习惯, 未使用其任何代码/素材)。
+  // 组合键写法: 'Shift+KeyF' / 'Ctrl+KeyS' / 'Alt+...'; 单键写法: 'KeyF'。
+  // 带修饰键的单键按下时不会触发不带修饰键的"按一下"动作 (例如 Shift+F 只放襟翼, 不收襟翼)。
   var DEFAULT_BINDINGS = {
-    // ---- 飞行操纵 ----
-    pitchUp: ['KeyS', 'ArrowDown', 'Numpad2'],
-    pitchDown: ['KeyW', 'ArrowUp', 'Numpad8'],
-    rollLeft: ['KeyA', 'ArrowLeft', 'Numpad4'],
-    rollRight: ['KeyD', 'ArrowRight', 'Numpad6'],
-    rudderLeft: ['KeyQ', 'Numpad7'],
-    rudderRight: ['KeyE', 'Numpad9'],
-    elevatorTrimUp: ['BracketRight'],
-    elevatorTrimDown: ['BracketLeft'],
+    // ---- 飞行操纵 (按住) ----
+    pitchUp: ['ArrowDown', 'KeyS', 'Numpad2'],          // 拉杆 / 抬头
+    pitchDown: ['ArrowUp', 'KeyW', 'Numpad8'],          // 推杆 / 低头
+    rollLeft: ['ArrowLeft', 'KeyA', 'Numpad4'],
+    rollRight: ['ArrowRight', 'KeyD', 'Numpad6'],
+    rudderLeft: ['Comma', 'Numpad0', 'KeyQ', 'Numpad7'],
+    rudderRight: ['Period', 'NumpadEnter', 'KeyE', 'Numpad9'],
+    elevatorTrimUp: ['End'],                            // 抬头配平
+    elevatorTrimDown: ['Home'],                         // 低头配平
 
-    // ---- 油门 ----
-    throttleUp: ['ShiftLeft', 'ShiftRight', 'PageUp'],
-    throttleDown: ['ControlLeft', 'ControlRight', 'PageDown'],
+    // ---- 油门 (按住) ----
+    throttleUp: ['PageUp', 'Equal', 'NumpadAdd'],
+    throttleDown: ['PageDown', 'Minus', 'NumpadSubtract'],
     throttleIdle: ['Digit0'],
     throttleClimb: ['Digit9'],
     throttleTOGA: ['Digit8'],
@@ -33,38 +36,35 @@
 
     // ---- 构型 ----
     gearToggle: ['KeyG'],
-    flapsUp: ['KeyF', 'Comma'],
-    flapsDown: ['KeyV', 'Period'],
-    flapsNext: ['KeyB'],
+    flapsUp: ['KeyF'],
+    flapsDown: ['Shift+KeyF', 'KeyV'],
     speedbrake: ['KeyZ'],
     spoilers: ['KeyX'],
-    brakes: ['Space'],
-    parkingBrake: ['KeyP'],
-    autoBrakeUp: ['KeyN'],
-    autoBrakeDown: ['KeyM'],
+    brakes: ['KeyB'],                                   // 按住刹车
+    parkingBrake: ['Shift+KeyB'],
+    pauseToggle: ['Space', 'KeyP'],
 
     // ---- 自动驾驶 ----
     apToggle: ['KeyT'],
+    apDisconnect: [],                                   // 仅摇杆按钮
     apThrottle: ['KeyY'],
     apHdg: ['KeyH'],
     apAlt: ['KeyL'],
     apVs: ['KeyK'],
     apNav: ['KeyJ'],
     apAppr: ['KeyI'],
-    apFLC: ['KeyU'],
     apFlch: ['KeyU'],
     apSpeedMach: ['KeyO'],
-    altPlus: ['Equal'],
-    altMinus: ['Minus'],
-    hdgPlus: ['Semicolon'],
-    hdgMinus: ['Quote'],
-    spdPlus: ['BracketRight'],
-    spdMinus: ['Slash'],
-    apLevel: ['KeyV'],
+    altPlus: ['BracketRight'],
+    altMinus: ['BracketLeft'],
+    hdgPlus: ['Quote'],
+    hdgMinus: ['Semicolon'],
+    spdPlus: ['Shift+BracketRight'],
+    spdMinus: ['Shift+BracketLeft'],
 
-    // ---- 视角/系统 ----
+    // ---- 视角/界面 ----
     viewNext: ['KeyC'],
-    viewPrev: ['ShiftLeft+KeyC'],
+    viewPrev: ['Shift+KeyC'],
     viewCockpit: ['Digit1'],
     viewWing: ['Digit2'],
     viewChase: ['Digit3'],
@@ -72,22 +72,48 @@
     viewOrbit: ['Digit5'],
     viewFree: ['Digit6'],
     viewFlyby: ['Digit7'],
-    toggleInstruments: ['KeyTab'],
-    toggleHud: ['KeyH'],
-    pause: ['Escape'],
-    timeScaleUp: ['KeyT'],
-    mute: ['KeyM'],
-    toggleHelp: ['F1'],
-    resetView: ['Home'],
+    mouseYoke: ['KeyM'],                                // 鼠标当驾驶杆 开/关
+    toggleHud: ['Shift+KeyH'],
+    timeScaleUp: ['Shift+KeyT'],
+    mute: ['Shift+KeyM'],
+    toggleHelp: ['F1', 'Shift+Slash'],                 // F1 或 ?
     screenshot: ['F2'],
 
     // ---- 系统 ----
-    apuToggle: ['KeyA'],
-    engine1Start: ['Digit1+ControlLeft'],
-    engineAllStart: ['KeyS+ControlLeft'],
-    nextPage: ['PageDown'],
-    prevPage: ['PageUp']
+    apuToggle: ['Shift+KeyA'],
+    engine1Start: ['Ctrl+Digit1'],
+    engineAllStart: ['Ctrl+KeyS']
   };
+
+  /** 绑定字符串规范化: 'ShiftLeft+KeyC' / 'KeyS+ControlLeft' -> 'Shift+KeyC' / 'Ctrl+KeyS' */
+  function normBinding(b) {
+    var parts = String(b).split('+'), mods = { Ctrl: false, Alt: false, Shift: false }, key = '', i;
+    for (i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      if (/^(Shift|ShiftLeft|ShiftRight)$/.test(p)) mods.Shift = true;
+      else if (/^(Ctrl|Control|ControlLeft|ControlRight)$/.test(p)) mods.Ctrl = true;
+      else if (/^(Alt|AltLeft|AltRight)$/.test(p)) mods.Alt = true;
+      else key = p;
+    }
+    return (mods.Ctrl ? 'Ctrl+' : '') + (mods.Alt ? 'Alt+' : '') + (mods.Shift ? 'Shift+' : '') + key;
+  }
+  function isModifierCode(c) { return /^(Shift|Control|Alt|Meta)(Left|Right)$/.test(c); }
+
+  /** 键码 -> 显示用的按键名 (帮助面板) */
+  function keyLabel(b) {
+    var map = { ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Comma: ',', Period: '.',
+      Equal: '+/=', Minus: '-', NumpadAdd: '小键盘+', NumpadSubtract: '小键盘-', NumpadEnter: '小键盘Enter',
+      BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Slash: '/', Space: '空格',
+      PageUp: 'PgUp', PageDown: 'PgDn', Home: 'Home', End: 'End' };
+    return String(b).split('+').map(function (p) {
+      if (map[p]) return map[p];
+      if (/^Key[A-Z]$/.test(p)) return p.substring(3);
+      if (/^Digit\d$/.test(p)) return p.substring(5);
+      if (/^Numpad\d$/.test(p)) return '小键盘' + p.substring(6);
+      if (p === 'Shift+Slash') return '?';
+      return p;
+    }).join('+').replace('Shift+/', '?');
+  }
 
   /* ---------------------------------------------------------------------
      Input 主体
@@ -96,7 +122,13 @@
     opts = opts || {};
     this.target = target || global;
     this.bindings = {};
-    for (var k in DEFAULT_BINDINGS) this.bindings[k] = DEFAULT_BINDINGS[k].slice();
+    for (var k in DEFAULT_BINDINGS) this.bindings[k] = DEFAULT_BINDINGS[k].map(normBinding);
+    this.mouseYoke = false;          // beta 0.3: 鼠标位置 (相对屏幕中心) = 驾驶杆
+    this.yokeDeadzone = 0.04;
+    this.touch = { active: false, id: null, x0: 0, y0: 0, sx: 0, sy: 0, lookId: null, lx: 0, ly: 0 };
+    this.joyThrottle = null;         // 摇杆油门轴最近值 (null = 未使用)
+    this._joyActions = {};           // 摇杆按钮触发的动作 (边沿)
+    this._joyHeld = {};              // 摇杆按钮按住的动作
 
     this.keys = {};                // code -> bool
     this.pressedThisFrame = {};
@@ -149,7 +181,10 @@
       }
       if (!self.keys[ev.code]) {
         self.pressedThisFrame[ev.code] = true;
-        self._pressedQueue[ev.code] = true;
+        if (!isModifierCode(ev.code)) {
+          var pre = (ev.ctrlKey || ev.metaKey ? 'Ctrl+' : '') + (ev.altKey ? 'Alt+' : '') + (ev.shiftKey ? 'Shift+' : '');
+          self._pressedQueue[pre + ev.code] = true;
+        }
       }
       self.keys[ev.code] = true;
       // 阻止页面滚动等默认行为
@@ -179,14 +214,58 @@
       self.mouse.x = ev.clientX;
       self.mouse.y = ev.clientY;
     };
+    function onScene(ev) {
+      var id = ev.target && ev.target.id;
+      return id === 'viewport' || id === 'hud-canvas' || ev.target === global.document.body;
+    }
     this._onMouseDown = function (ev) {
       if (ev.button === 0) self.mouse.down = true;
       if (ev.button === 2) self.mouse.rightDown = true;
+      // 在三维画面上按下才算"拖拽环视", 点仪表/按钮不算
+      self.mouse.dragView = onScene(ev);
     };
     this._onMouseUp = function (ev) {
       if (ev.button === 0) self.mouse.down = false;
       if (ev.button === 2) self.mouse.rightDown = false;
+      if (!self.mouse.down && !self.mouse.rightDown) self.mouse.dragView = false;
     };
+    /* --- 触摸: 单指拖动 = 虚拟驾驶杆 (相对按下点), 第二指拖动 = 环视 --- */
+    this._onTouchStart = function (ev) {
+      if (!onScene(ev)) return;
+      for (var i = 0; i < ev.changedTouches.length; i++) {
+        var tch = ev.changedTouches[i], T = self.touch;
+        if (T.id === null) { T.id = tch.identifier; T.x0 = tch.clientX; T.y0 = tch.clientY; T.sx = 0; T.sy = 0; T.active = true; }
+        else if (T.lookId === null) { T.lookId = tch.identifier; T.lx = tch.clientX; T.ly = tch.clientY; }
+      }
+      ev.preventDefault();
+    };
+    this._onTouchMove = function (ev) {
+      var T = self.touch, R = Math.max(60, Math.min(global.innerWidth, global.innerHeight) * 0.22);
+      for (var i = 0; i < ev.changedTouches.length; i++) {
+        var tch = ev.changedTouches[i];
+        if (tch.identifier === T.id) {
+          T.sx = U.clamp((tch.clientX - T.x0) / R, -1, 1);
+          T.sy = U.clamp((tch.clientY - T.y0) / R, -1, 1);
+        } else if (tch.identifier === T.lookId) {
+          self._touchLookX = (self._touchLookX || 0) + (tch.clientX - T.lx);
+          self._touchLookY = (self._touchLookY || 0) + (tch.clientY - T.ly);
+          T.lx = tch.clientX; T.ly = tch.clientY;
+        }
+      }
+      if (T.active) ev.preventDefault();
+    };
+    this._onTouchEnd = function (ev) {
+      var T = self.touch;
+      for (var i = 0; i < ev.changedTouches.length; i++) {
+        var id = ev.changedTouches[i].identifier;
+        if (id === T.id) { T.id = null; T.active = false; T.sx = 0; T.sy = 0; }
+        if (id === T.lookId) T.lookId = null;
+      }
+    };
+    global.addEventListener('touchstart', this._onTouchStart, { passive: false });
+    global.addEventListener('touchmove', this._onTouchMove, { passive: false });
+    global.addEventListener('touchend', this._onTouchEnd);
+    global.addEventListener('touchcancel', this._onTouchEnd);
     this._onWheel = function (ev) {
       self.mouse.wheel += ev.deltaY;
     };
@@ -217,22 +296,28 @@
 
   Input.prototype._shouldPrevent = function (code) {
     return ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab',
-      'PageUp', 'PageDown', 'Home', 'End', 'Slash', 'Quote', 'Semicolon',
-      'BracketLeft', 'BracketRight', 'Minus', 'Equal', 'F1'].indexOf(code) >= 0;
+      'PageUp', 'PageDown', 'Home', 'End', 'Slash', 'Quote', 'Semicolon', 'Comma', 'Period',
+      'BracketLeft', 'BracketRight', 'Minus', 'Equal', 'F1', 'F2', 'NumpadAdd', 'NumpadSubtract',
+      'NumpadEnter', 'Numpad0'].indexOf(code) >= 0;
   };
 
   /* ---------------- 绑定查询 ---------------- */
+  Input.prototype._modDown = function (m) {
+    var k = this.keys;
+    if (m === 'Shift') return !!(k.ShiftLeft || k.ShiftRight);
+    if (m === 'Ctrl') return !!(k.ControlLeft || k.ControlRight || k.MetaLeft || k.MetaRight);
+    if (m === 'Alt') return !!(k.AltLeft || k.AltRight);
+    return false;
+  };
   Input.prototype.isDown = function (action) {
+    if (this._joyHeld[action]) return true;
     var b = this.bindings[action];
     if (!b) return false;
     for (var i = 0; i < b.length; i++) {
-      var parts = b[i].split('+');
-      var ok = true;
+      var parts = b[i].split('+'), ok = true;
       for (var j = 0; j < parts.length; j++) {
-        // 修饰键
         var p = parts[j];
-        if (p === 'ShiftLeft' && !this.keys['ShiftRight'] && !this.keys['ShiftLeft']) ok = false;
-        else if (p === 'ControlLeft' && !this.keys['ControlRight'] && !this.keys['ControlLeft']) ok = false;
+        if (p === 'Shift' || p === 'Ctrl' || p === 'Alt') { if (!this._modDown(p)) ok = false; }
         else if (!this.keys[p]) ok = false;
       }
       if (ok) return true;
@@ -241,42 +326,61 @@
   };
 
   Input.prototype.wasPressed = function (action) {
+    if (this._joyActions[action]) return true;
     var b = this.bindings[action];
     if (!b) return false;
-    for (var i = 0; i < b.length; i++) {
-      if (this._pressedQueue[b[i]]) return true;
-      var parts = b[i].split('+');
-      if (parts.length === 1 && this.pressedThisFrame[parts[0]]) return true;
-    }
+    for (var i = 0; i < b.length; i++) if (this._pressedQueue[b[i]]) return true;
     return false;
   };
 
   /** 边沿触发并消费 (避免重复触发) */
   Input.prototype.consume = function (action) {
     if (!this.wasPressed(action)) return false;
-    var b = this.bindings[action];
+    var b = this.bindings[action] || [];
     for (var i = 0; i < b.length; i++) delete this._pressedQueue[b[i]];
+    delete this._joyActions[action];
     return true;
   };
 
-  Input.prototype.rebind = function (action, codes) {
-    this.bindings[action] = Array.isArray(codes) ? codes.slice() : [codes];
+  /** 摇杆按钮 -> 动作 (由 FS.Joystick 调用) */
+  Input.prototype.triggerAction = function (action) { this._joyActions[action] = true; };
+  Input.prototype.holdAction = function (action, on) { if (on) this._joyHeld[action] = true; else delete this._joyHeld[action]; };
+
+  /** 帮助面板用: 某动作的按键显示文本 */
+  Input.prototype.labelFor = function (action) {
+    return (this.bindings[action] || []).map(function (b) { return b === 'Shift+Slash' ? '?' : keyLabel(b); }).join(' / ');
   };
 
-  /* ---------------- 手柄读取 ---------------- */
+  Input.prototype.rebind = function (action, codes) {
+    this.bindings[action] = (Array.isArray(codes) ? codes : [codes]).map(normBinding);
+  };
+
+  /* ---------------- 手柄 / 摇杆读取 ---------------- */
+  // 标准映射 (mapping === 'standard', 如 Xbox/PS 手柄): 左摇杆 = 杆, 肩键 = 方向舵, 扳机 = 油门。
+  // 其它 HID 设备 (Thrustmaster TCA 侧杆/油门台、普通飞行摇杆) 交给 FS.Joystick 按"摇杆设置"映射。
   Input.prototype._pollGamepad = function () {
-    if (!global.navigator || !global.navigator.getGamepads) return;
-    var pads = global.navigator.getGamepads();
-    if (!pads) return;
-    var gp = null;
-    for (var i = 0; i < pads.length; i++) {
-      if (pads[i]) { gp = pads[i]; break; }
+    this.gamepad = null;
+    this.joy = null;
+    if (!global.navigator || !global.navigator.getGamepads) { this.gamepadConnected = false; return; }
+    var pads;
+    try { pads = global.navigator.getGamepads(); } catch (e) { pads = null; }
+    if (!pads) { this.gamepadConnected = false; return; }
+    var gp = null, joyPads = [], i;
+    for (i = 0; i < pads.length; i++) {
+      var pd = pads[i];
+      if (!pd || !pd.connected) continue;
+      var isStd = pd.mapping === 'standard' && !(FS.Joystick && FS.Joystick.hasProfile(pd.id));
+      if (isStd && !gp) gp = pd; else if (!isStd) joyPads.push(pd);
     }
     this.gamepad = gp;
-    if (!gp) { this.gamepadConnected = false; return; }
-    this.gamepadConnected = true;
+    this.gamepadConnected = !!gp;
+    if (joyPads.length && FS.Joystick) this.joy = FS.Joystick.read(joyPads, this);
+    if (!gp) {
+      this.gpAxes[0] = this.gpAxes[1] = this.gpAxes[2] = this.gpAxes[3] = 0;
+      this.holdAction('brakes', !!(this.joy && this.joy.held.brakes));
+      return;
+    }
 
-    // 轴: 左摇杆 = 俯仰/横滚, 右摇杆 = 视角, 扳机 = 油门/方向舵
     var dead = 0.12;
     this.gpAxes[0] = U.deadzone(gp.axes[0] || 0, dead);
     this.gpAxes[1] = U.deadzone(gp.axes[1] || 0, dead);
@@ -291,6 +395,14 @@
       if (val && !this.gpButtons[name]) this.gpPressed[name] = true;
       this.gpButtons[name] = val;
     }
+    // 标准手柄按钮 -> 动作
+    if (this.gpPressed.A) this.triggerAction('gearToggle');
+    if (this.gpPressed.Y) this.triggerAction('viewNext');
+    if (this.gpPressed.Up) this.triggerAction('flapsUp');
+    if (this.gpPressed.Down) this.triggerAction('flapsDown');
+    if (this.gpPressed.Start) this.triggerAction('pauseToggle');
+    if (this.gpPressed.Back) this.triggerAction('apDisconnect');
+    this.holdAction('brakes', !!this.gpButtons.X || !!(this.joy && this.joy.held.brakes));
   };
 
   Input.prototype.gpDown = function (name) { return !!this.gpButtons[name]; };
@@ -299,86 +411,113 @@
     return false;
   };
 
+  Input.prototype.setMouseYoke = function (on) {
+    this.mouseYoke = !!on;
+    this.mouseStick.x = this.mouseStick.y = 0;
+    FS.Bus && FS.Bus.emit('input:mouseYoke', { on: this.mouseYoke });
+  };
+
   /* ---------------- 每帧更新 ---------------- */
   Input.prototype.update = function (dt) {
     dt = Math.min(dt, 0.1);
     this._pollGamepad();
 
     var a = this.axisTargets;
-    var gp = this.gpAxes;
+    var gp = this.gpAxes, joy = this.joy;
     var useGamepad = this.gamepadConnected && (Math.abs(gp[0]) > 0.02 || Math.abs(gp[1]) > 0.02);
+    var useJoy = joy && joy.hasStick;
+
+    // 鼠标驾驶杆: 光标相对屏幕中心 (屏幕 80% 范围 = 满偏), 小死区
+    var myX = 0, myY = 0;
+    if (this.mouseYoke) {
+      var W = global.innerWidth || 1, H = global.innerHeight || 1;
+      myX = U.deadzone(U.clamp((this.mouse.x - W / 2) / (W * 0.4), -1, 1), this.yokeDeadzone);
+      myY = U.deadzone(U.clamp((this.mouse.y - H / 2) / (H * 0.4), -1, 1), this.yokeDeadzone);
+      this.mouseStick.x = myX; this.mouseStick.y = myY;
+    }
+    var T = this.touch;
 
     /* ---- 俯仰 (约定: +1 = 抬头 / 拉杆) ---- */
-    var pIn = 0;
-    if (this.isDown('pitchUp')) pIn += 1;          // S / ↓ / 拉杆 = 抬头
-    if (this.isDown('pitchDown')) pIn -= 1;        // W / ↑ / 推杆 = 低头
-    if (useGamepad) pIn = -gp[1];                  // 手柄前推 = 低头
-    if (this.mouseMode === 'stick' && this.mouse.down) pIn = U.clamp(this.mouseStick.y, -1, 1);
+    var pIn = 0, keyP = false;
+    if (this.isDown('pitchUp')) { pIn += 1; keyP = true; }
+    if (this.isDown('pitchDown')) { pIn -= 1; keyP = true; }
+    if (!keyP) {
+      if (useJoy) pIn = joy.pitch;
+      else if (useGamepad) pIn = -gp[1];             // 手柄前推 = 低头
+      else if (T.active) pIn = T.sy;                 // 手指往下拖 = 拉杆
+      else if (this.mouseYoke) pIn = myY;            // 光标在中心以下 = 拉杆抬头
+    }
     a.pitch = U.clamp(pIn, -1, 1);
 
     /* ---- 横滚 ---- */
-    var rIn = 0;
-    if (this.isDown('rollLeft')) rIn -= 1;
-    if (this.isDown('rollRight')) rIn += 1;
-    if (useGamepad) rIn = gp[0];
-    if (this.mouseMode === 'stick' && this.mouse.down) rIn = U.clamp(this.mouseStick.x, -1, 1);
-    a.roll = rIn;
+    var rIn = 0, keyR = false;
+    if (this.isDown('rollLeft')) { rIn -= 1; keyR = true; }
+    if (this.isDown('rollRight')) { rIn += 1; keyR = true; }
+    if (!keyR) {
+      if (useJoy) rIn = joy.roll;
+      else if (useGamepad) rIn = gp[0];
+      else if (T.active) rIn = T.sx;
+      else if (this.mouseYoke) rIn = myX;
+    }
+    a.roll = U.clamp(rIn, -1, 1);
 
     /* ---- 方向舵 ---- */
-    var yIn = 0;
-    if (this.isDown('rudderLeft')) yIn -= 1;
-    if (this.isDown('rudderRight')) yIn += 1;
-    if (this.gamepadConnected) {
-      // 肩键作方向舵
-      if (this.gpButtons['LB']) yIn -= 1;
-      if (this.gpButtons['RB']) yIn += 1;
-      if (Math.abs(gp[3]) > 0.02) yIn = gp[3];
+    var yIn = 0, keyY = false;
+    if (this.isDown('rudderLeft')) { yIn -= 1; keyY = true; }
+    if (this.isDown('rudderRight')) { yIn += 1; keyY = true; }
+    if (!keyY) {
+      if (joy && joy.hasYaw) yIn = joy.yaw;
+      if (this.gamepadConnected) {
+        if (this.gpButtons.LB) yIn -= 1;
+        if (this.gpButtons.RB) yIn += 1;
+        if (Math.abs(gp[3]) > 0.02 && !this.gpButtons.LB && !this.gpButtons.RB) yIn = gp[3];
+      }
     }
-    // 地面低速时键盘方向舵兼作前轮转向 (由 flightmodel 处理)
-    a.yaw = yIn;
+    a.yaw = U.clamp(yIn, -1, 1);
 
-    /* ---- 摇杆平滑 (真实侧杆有行程时间) ---- */
+    /* ---- 平滑: 键盘/触摸有行程时间; 摇杆/鼠标是绝对位置, 只做轻微滤波 ---- */
+    var analog = !keyP && (useJoy || useGamepad || T.active || this.mouseYoke);
     var rate = (Math.abs(pIn) > 0.01) ? this.axisRate : this.axisCenterRate;
-    this.axes.pitch = U.moveTowards(this.axes.pitch, a.pitch, rate * dt);
-    this.axes.roll = U.moveTowards(this.axes.roll, a.roll, rate * 1.15 * dt);
-    this.axes.yaw = U.moveTowards(this.axes.yaw, a.yaw, rate * 1.6 * dt);
+    if (analog) {
+      this.axes.pitch = U.damp(this.axes.pitch, a.pitch, 0.06, dt);
+      this.axes.roll = U.damp(this.axes.roll, a.roll, 0.06, dt);
+    } else {
+      this.axes.pitch = U.moveTowards(this.axes.pitch, a.pitch, rate * dt);
+      this.axes.roll = U.moveTowards(this.axes.roll, a.roll, rate * 1.15 * dt);
+    }
+    if (!keyY && joy && joy.hasYaw) this.axes.yaw = U.damp(this.axes.yaw, a.yaw, 0.06, dt);
+    else this.axes.yaw = U.moveTowards(this.axes.yaw, a.yaw, rate * 1.6 * dt);
 
     /* ---- 油门 ---- */
     var thrDelta = 0;
     if (this.isDown('throttleUp')) thrDelta += this.throttleRate * dt;
     if (this.isDown('throttleDown')) thrDelta -= this.throttleRate * dt;
     if (this.gamepadConnected) {
-      if (this.gpButtons['RT']) thrDelta += this.throttleRate * dt;
-      if (this.gpButtons['LT']) thrDelta -= this.throttleRate * dt;
+      if (this.gpButtons.RT) thrDelta += this.throttleRate * dt;
+      if (this.gpButtons.LT) thrDelta -= this.throttleRate * dt;
     }
     this.axes.throttle = U.clamp01(this.axes.throttle + thrDelta);
+    // 摇杆/油门台的油门轴: 只有在轴被推动时才接管 (键盘仍可用)
+    if (joy && joy.hasThrottle && joy.throttleMoved) this.axes.throttle = U.clamp01(joy.throttle);
+    this.axes.throttleL = this.axes.throttle;
+    this.axes.throttleR = (joy && joy.hasThrottle2 && joy.throttle2 !== null) ? U.clamp01(joy.throttle2) : this.axes.throttle;
 
-    // 鼠标滚轮微调油门
-    if (this.mouse.wheel !== 0) {
+    // 鼠标滚轮: 驾驶舱内微调油门; 外部视角由相机用来缩放
+    if (this.mouse.wheel !== 0 && this.wheelThrottle !== false) {
       this.axes.throttle = U.clamp01(this.axes.throttle - this.mouse.wheel * 0.00035);
     }
 
-    /* ---- 鼠标摇杆模式 ---- */
-    if (this.mouseMode === 'stick') {
-      var sens = this.mouse.sensitivity * 2.2;
-      if (this.mouse.down || this.mouse.locked) {
-        // 鼠标向下 = 拉杆抬头, 因此 y 取负
-        this.mouseStick.x = U.clamp(this.mouseStick.x + this.mouse.dx * sens, -1, 1);
-        this.mouseStick.y = U.clamp(this.mouseStick.y - this.mouse.dy * sens, -1, 1);
-      }
-      // 无输入时缓慢回中
-      if (!this.mouse.down) {
-        this.mouseStick.x = U.damp(this.mouseStick.x, 0, 0.9, dt);
-        this.mouseStick.y = U.damp(this.mouseStick.y, 0, 0.9, dt);
-      }
-    } else {
-      this.mouseStick.x = 0; this.mouseStick.y = 0;
-    }
-    if (this.mouseMode === 'look' && this.mouse.locked) {
+    /* ---- 环视: 指针锁定 / 在画面上拖拽 (鼠标驾驶杆模式下只用右键拖拽) / 第二根手指 ---- */
+    var drag = this.mouse.dragView && (this.mouse.rightDown || (this.mouse.down && !this.mouseYoke));
+    if ((this.mouseMode === 'look' && this.mouse.locked) || drag) {
       this.lookDeltaX = this.mouse.dx;
       this.lookDeltaY = this.mouse.dy;
     } else {
       this.lookDeltaX = this.lookDeltaY = 0;
+    }
+    if (this._touchLookX || this._touchLookY) {
+      this.lookDeltaX += this._touchLookX || 0; this.lookDeltaY += this._touchLookY || 0;
+      this._touchLookX = this._touchLookY = 0;
     }
 
     this.dt = dt;
@@ -386,6 +525,7 @@
 
   /** 每帧末调用: 清理边沿触发状态 */
   Input.prototype.endFrame = function () {
+    this._joyActions = {};
     this.pressedThisFrame = {};
     this.releasedThisFrame = {};
     this._pressedQueue = {};
@@ -421,9 +561,15 @@
     global.removeEventListener('mouseup', this._onMouseUp);
     global.removeEventListener('wheel', this._onWheel);
     global.removeEventListener('contextmenu', this._onContext);
+    global.removeEventListener('touchstart', this._onTouchStart);
+    global.removeEventListener('touchmove', this._onTouchMove);
+    global.removeEventListener('touchend', this._onTouchEnd);
+    global.removeEventListener('touchcancel', this._onTouchEnd);
   };
 
   Input.DEFAULT_BINDINGS = DEFAULT_BINDINGS;
+  Input.keyLabel = keyLabel;
+  Input.normBinding = normBinding;
   FS.Input = Input;
 
   FS.Log.info('input.js 已加载 — 键盘/鼠标/手柄输入就绪');

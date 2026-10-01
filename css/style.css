@@ -1,5 +1,5 @@
 /* ==========================================================================
-   飞行模拟器 — 样式表
+   天际航线 SkyRoute — 样式表
    ========================================================================== */
 
 :root {
@@ -10,8 +10,10 @@
   --border-bright: rgba(90, 190, 255, 0.55);
   --text: #d8e4ec;
   --text-dim: #7d8f9c;
-  --accent: #35c9ff;
-  --accent-dim: #1a6f92;
+  --accent: #2ea3f2;           /* SkyRoute 天蓝 */
+  --accent-dim: #1b6aa6;
+  --brand-navy: #0b2a5b;       /* SkyRoute 深蓝 */
+  --brand-orange: #ff8a3d;     /* SkyRoute 橙色强调 */
   --green: #00e05a;
   --amber: #ffb400;
   --red: #ff3a3a;
@@ -170,9 +172,9 @@ body {
   z-index: 800;
   overflow-y: auto;
   background:
-    radial-gradient(ellipse at 20% 0%, rgba(20, 70, 110, 0.5) 0%, transparent 55%),
-    radial-gradient(ellipse at 85% 100%, rgba(10, 50, 80, 0.45) 0%, transparent 55%),
-    linear-gradient(160deg, #070c12 0%, #0a1219 50%, #06090d 100%);
+    radial-gradient(ellipse at 20% 0%, rgba(46, 163, 242, 0.28) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 100%, rgba(255, 138, 61, 0.10) 0%, transparent 50%),
+    linear-gradient(160deg, #0b2a5b 0%, #08182f 45%, #050b16 100%);
 }
 
 .menu-inner {
@@ -1797,3 +1799,81 @@ body.show-log #boot-log {
 .credits-list th { color: var(--accent-dim); font-weight: 600; font-size: 11px; }
 .credits-list a { color: #6fd3ff; word-break: break-all; }
 .credits-list .muted { color: var(--text-dim); font-size: 11.5px; }
+
+/* beta 0.3: 联网地景数据署名 */
+#scenery-attrib {
+  display: none;
+  position: fixed; right: 6px; bottom: 4px; z-index: 40;
+  max-width: 62vw;
+  font: 10px/1.35 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(0, 0, 0, 0.38);
+  padding: 2px 6px; border-radius: 4px;
+  pointer-events: auto;
+  text-shadow: 0 0 2px rgba(0,0,0,0.8);
+}
+
+/* beta 0.3: 视角按钮 / 鼠标驾驶杆 / 摇杆设置 / 暂停提示 */
+.tb-btn.tb-wide { width: auto; padding: 0 8px; white-space: nowrap; }
+.tb-btn.on { background: rgba(60, 160, 110, 0.85); border-color: rgba(120, 230, 170, 0.9); }
+.view-ctl { display: inline-flex; align-items: center; gap: 0; }
+.view-ctl .tb-btn { border-top-right-radius: 0; border-bottom-right-radius: 0; min-width: 92px; }
+.tb-select {
+  height: 24px; width: 22px; padding: 0; border-radius: 0 5px 5px 0;
+  background: rgba(20, 30, 40, 0.8); color: var(--text); border: 1px solid var(--border); border-left: none;
+  font-size: 11px; cursor: pointer;
+}
+@media (pointer: coarse) {
+  .tb-btn.tb-wide, .tb-select { height: 34px; font-size: 14px; }
+  .tb-select { width: 30px; }
+}
+#pause-indicator {
+  position: fixed; left: 50%; top: 22%; transform: translateX(-50%); z-index: 60;
+  background: rgba(0, 0, 0, 0.55); color: #fff; padding: 8px 18px; border-radius: 6px;
+  font-size: 16px; letter-spacing: 1px; pointer-events: none;
+}
+#ptt-indicator {
+  position: fixed; left: 12px; bottom: 40px; z-index: 60; color: #fff; background: rgba(200, 40, 40, 0.75);
+  padding: 3px 9px; border-radius: 4px; font-size: 13px; pointer-events: none;
+}
+#yoke-reticle {
+  position: fixed; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; z-index: 30;
+  border: 1px dashed rgba(120, 255, 170, 0.55); border-radius: 50%; pointer-events: none;
+}
+#yoke-dot {
+  position: absolute; left: 54px; top: 54px; width: 12px; height: 12px; border-radius: 50%;
+  background: rgba(120, 255, 170, 0.9); box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+}
+.joy-note { font-size: 12px; color: var(--text-dim); margin: 0 0 10px; }
+.joy-devices { max-height: 60vh; overflow: auto; }
+.joy-empty { padding: 14px; border: 1px dashed var(--border); border-radius: 6px; font-size: 13px; line-height: 1.6; }
+.joy-dev { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+.joy-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.joy-tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-dim); }
+.joy-chk { font-size: 12px; margin-left: auto; }
+.joy-live { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0; font-size: 11px; }
+.joy-ax { display: inline-flex; align-items: center; gap: 4px; }
+.joy-ax i { font-style: normal; color: var(--text-dim); }
+.joy-bar { position: relative; display: inline-block; width: 70px; height: 8px; background: rgba(255,255,255,0.12); border-radius: 4px; }
+.joy-bar span { position: absolute; top: -2px; width: 4px; height: 12px; margin-left: -2px; background: #7fe0a8; border-radius: 2px; }
+.joy-btns { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.joy-b { display: inline-block; min-width: 16px; text-align: center; padding: 0 3px; border: 1px solid var(--border); border-radius: 3px; }
+.joy-b.on { background: #3c9; color: #000; }
+.joy-table { border-collapse: collapse; margin: 6px 12px 6px 0; font-size: 12px; display: inline-table; vertical-align: top; }
+.joy-table th, .joy-table td { padding: 2px 6px; text-align: left; }
+.joy-table select { font-size: 12px; }
+.btn.btn-xs { padding: 1px 8px; font-size: 11px; }
+.joy-sliders { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; }
+.joy-sliders label { display: flex; flex-direction: column; gap: 2px; }
+/* SkyRoute 品牌: 官方标志 (透明 PNG) 放在白色圆角底板上, 保证深色背景下可读 */
+.brand-logo-card { display: inline-block; background: #fff; border-radius: 12px; padding: 6px 14px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35); border-bottom: 3px solid var(--brand-orange); }
+.brand-logo-card img { display: block; height: 64px; width: auto; }
+.menu-brand h1 { margin: 0; line-height: 0; }
+.menu-brand h1 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.menu-brand p { margin-top: 8px; color: var(--accent); }
+.load-logo .brand-logo-card img { height: 92px; }
+.btn-primary#start-flight { background: linear-gradient(180deg, #ff9d5a, var(--brand-orange)); border-color: #ffb07a; color: #1b0d02; }
+.btn-primary#start-flight:hover { background: linear-gradient(180deg, #ffb07a, #ff9d5a); }
+.about-head { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 14px; line-height: 1.5; }
+.about-head img { border-radius: 22%; }
+#credits-list ul.small { font-size: 11px; margin: 4px 0 8px 18px; padding: 0; }

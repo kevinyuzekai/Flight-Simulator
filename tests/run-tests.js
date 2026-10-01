@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ==========================================================================
-   飞行模拟器 —— 物理 / 自动驾驶 / 模型资源 自动化测试 (beta 0.2 重新编写)
+   天际航线 SkyRoute —— 物理 / 自动驾驶 / 模型资源 自动化测试 (beta 0.2 重新编写)
    用法:  node tests/run-tests.js            (需要 Node.js ≥ 14, 无第三方依赖)
    说明:  v0.1 的发布包中没有附带任何测试文件, 本文件为 beta 0.2 重新编写。
           直接在 Node 的 vm 沙箱中加载游戏原版 js 文件 (不做任何修改),
@@ -65,7 +65,7 @@ function run(sim, seconds, each) {
   return seconds;
 }
 
-console.log('\n飞行模拟器 自动化测试 (' + TYPES.length + ' 种机型, 物理 ' + HZ + ' Hz)\n');
+console.log('\n天际航线 SkyRoute 自动化测试 (' + TYPES.length + ' 种机型, 物理 ' + HZ + ' Hz)\n');
 
 /* ---------- 1. 静止在跑道上: 所有机型 ---------- */
 console.log('[1] 地面静止 (20 s, 慢车, 停留刹车)');
@@ -140,16 +140,30 @@ console.log('\n[3] ILS 自动着陆 (12 nm 起, AP + A/THR + APPR)');
   });
 });
 
-/* ---------- 4. 失速保护 ---------- */
-console.log('\n[4] 失速保护 (A350-900 正常法则, 慢车 + 满拉杆 60 s)');
-test('迎角保护 A350-900', function () {
-  var s = makeFm('A350-900', 'ZSPD'); var a = s.apt;
-  s.fm.setupForCruise(a.lat, a.lon, 10000, 90, 0.5);
-  s.fm.setThrottle('all', 0);
-  var maxA = -1e9, stallA = s.fm.getState().stallAngleDeg;
-  run(s, 60, function (st) { finite(st); s.fm.setPilotInput(1, 0, 0); maxA = Math.max(maxA, st.alphaDeg); });
-  assert(maxA < stallA, '迎角 ' + maxA.toFixed(1) + '° 超过失速迎角 ' + stallA.toFixed(1) + '°');
-  return '最大迎角 ' + maxA.toFixed(1) + '° < 失速迎角 ' + stallA.toFixed(1) + '°';
+/* ---------- 4. 失速保护 (beta 0.3: 全部电传机型, 光洁 + 着陆构型) ---------- */
+console.log('\n[4] 迎角保护 (所有带包线保护的电传机型, 慢车 + 满拉杆 60 s; 光洁 10000 ft / 着陆构型进近)');
+TYPES.forEach(function (type) {
+  var fbw = FS.AIRCRAFT_DB[type].systems.flyByWire;
+  if (!fbw || !fbw.envelopeProtection) return;
+  ['clean', 'land'].forEach(function (cfg) {
+    test('迎角保护 ' + type + ' ' + (cfg === 'clean' ? '光洁' : '着陆构型'), function () {
+      var s = makeFm(type, 'ZSPD'); var a = s.apt;
+      if (cfg === 'clean') s.fm.setupForCruise(a.lat, a.lon, 10000, 90, 0.5);
+      else { s.fm.setupForApproach('ZSPD', '17L', 12); s.fm.ap.apprArmed = s.fm.ap.locArmed = s.fm.ap.gsArmed = false; }
+      s.fm.setThrottle('all', 0);
+      var maxA = -1e9, stallA = 1e9;
+      run(s, 60, function (st) { finite(st); s.fm.setPilotInput(1, 0, 0); maxA = Math.max(maxA, st.alphaDeg); stallA = Math.min(stallA, st.stallAngleDeg); });
+      assert(maxA < stallA, '迎角 ' + maxA.toFixed(1) + '° 超过失速迎角 ' + stallA.toFixed(1) + '°');
+      return '最大迎角 ' + maxA.toFixed(1) + '° < 失速迎角 ' + stallA.toFixed(1) + '°';
+    });
+  });
+});
+test('地面模式: 电传机型静止时舵面不乱偏 (A330-300, 30 s)', function () {
+  var s = makeFm('A330-300', 'ZGGG'); s.fm.setupForTakeoff('ZGGG', bestRwy(s.apt), {}); s.fm.setParkingBrake(true);
+  run(s, 30, function (st) { finite(st); });
+  var sf = s.fm.surfaces;
+  assert(Math.abs(sf.elevator) < 0.05 && Math.abs(sf.rudder) < 0.05, '升降舵 ' + sf.elevator.toFixed(2) + ' 方向舵 ' + sf.rudder.toFixed(2));
+  return '升降舵 ' + sf.elevator.toFixed(3) + ', 方向舵 ' + sf.rudder.toFixed(3);
 });
 
 /* ---------- 5. 模型资源 (beta 0.2) ---------- */

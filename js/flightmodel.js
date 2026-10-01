@@ -1,5 +1,5 @@
 /* ==========================================================================
-   飞行模拟器 — 飞行动力学模型 (flightmodel.js)
+   天际航线 SkyRoute — 飞行动力学模型 (flightmodel.js)
    六自由度刚体 + 气动导数 + 涡扇发动机 + 起落架/地面 + 燃油
    坐标系:
      机体轴  x = 机头前  y = 右翼  z = 机腹向下   (标准航空机体轴)
@@ -714,7 +714,11 @@
 
     var pIn = this.pilot.pitch, rIn = this.pilot.roll, yIn = this.pilot.yaw;
 
-    if (this.controlLaw === 'normal' && fbw && fbw.envelopeProtection) {
+    // beta 0.3: 地面模式 —— 主轮承重时电传飞机与真实飞机一样使用直接法则 (杆量 = 舵面),
+    // 不做迎角/侧滑反馈 (静止时迎角/侧滑角无意义, 之前会把升降舵/方向舵推到极限)
+    var groundMode = this.wow && (this.ias || 0) < 100 * C.KT;
+    if (groundMode) { this._alphaProtActive = false; this._clPrevAlpha = undefined; }
+    if (!groundMode && this.controlLaw === 'normal' && fbw && fbw.envelopeProtection) {
       /* ---------- 空客正常法则 ----------
          俯仰杆量 -> 载荷因数需求 (-1g ~ +2.5g), 松杆自动回中并自动配平
          横滚杆量 -> 滚转速率需求 (±15°/s), 松杆保持坡度
@@ -725,6 +729,12 @@
       // 迎角保护: 接近 alphaProt 时限制拉杆
       var aProt = fbw.alphaProt * C.DEG;
       var aMax = fbw.alphaMax * C.DEG;
+      // beta 0.3: 保护迎角随襟翼构型变化 —— 不能高于当前构型失速迎角 - 1.5°
+      var aStallCfg = ((this.flapData || {}).alphaStall || 0) * C.DEG;
+      if (aStallCfg > 0 && aMax > aStallCfg - 1.5 * C.DEG) {
+        var shift = aMax - (aStallCfg - 1.5 * C.DEG);
+        aMax -= shift; aProt -= shift;
+      }
       if (this.alpha > aProt) {
         var over = U.clamp01((this.alpha - aProt) / Math.max(0.001, aMax - aProt));
         gDemand = Math.min(gDemand, U.lerp(2.5, 1.0, over));
@@ -743,14 +753,51 @@
       // 载荷因数控制律 (用俯仰角速率阻尼 + 过载反馈)
       var gErr = gDemand - this.gLoad;
       var targetQ = U.clamp(gErr * 0.32 - this.rates.q * 0.55, -0.85, 0.85);
+
+      // beta 0.3: 迎角保护改为真正的"迎角指令律"。
+      // v0.1 只把 g 指令降到 1g, 减速中保持 1g 仍需不断增大迎角, 长时间满拉杆会失速。
+      // 现在: 迎角接近 alphaProt 后, 杆量直接对应迎角 (中立 = alphaProt, 满拉杆 = alphaMax),
+      // 俯仰角速率指令取 g 律与迎角律中更低头的一个, 迎角不会超过 alphaMax。
+      if (aProt > 0 && aMax > aProt) {
+        var alphaCmd = aProt + Math.max(0, pIn) * (aMax - aProt);
+        if (pIn < 0) alphaCmd = aProt + pIn * 8 * C.DEG;
+        // 预测迎角 (考虑迎角变化率), 提前收杆, 防止动态冲过 alphaMax
+        var alphaRate = this._clPrevAlpha !== undefined && dt > 0 ? (this.alpha - this._clPrevAlpha) / dt : 0;
+        this._alphaRateF = U.damp(this._alphaRateF || 0, U.clamp(alphaRate, -0.5, 0.5), 0.05, dt);
+        alphaRate = this._alphaRateF;
+        var alphaPred = this.alpha + U.clamp(alphaRate, -0.2, 0.2) * 0.9;
+        var qAlpha = U.clamp((alphaCmd - alphaPred) * 1.6 - this.rates.q * 0.35, -0.85, 0.85);
+        this._alphaProtActive = this.alpha > aProt - 0.5 * C.DEG;
+        if (qAlpha < targetQ) targetQ = qAlpha;
+      }
+      this._clPrevAlpha = this.alpha;
+      // 俯仰姿态保护: 抬头不超过 30° (低速时 25°), 低头不超过 -15°
+      var spdF = U.clamp01(((this.ias || 0) / C.KT - 120) / 80);
+      var maxPitch = (25 + 5 * spdF) * C.DEG;
+      var qPitch = (maxPitch - this.pitch) * 0.8 - this.rates.q * 0.3;
+      if (qPitch < targetQ) targetQ = qPitch;
+      var qPitchDn = (-15 * C.DEG - this.pitch) * 0.8 - this.rates.q * 0.3;
+      if (qPitchDn > targetQ) targetQ = qPitchDn;
+      var noseUpTrimInhibit = this._alphaProtActive || this.pitch > 25 * C.DEG;
       // 约定: 升降舵正值 = 后缘向下 = 低头力矩, 所以抬头(q>0)需要负的升降舵
       var deCmd = -targetQ / Math.max(0.35, this._elevAuthority());
       s.elevator = U.damp(s.elevator, U.clamp(deCmd, -1, 1), 0.16, dt);
 
       // 自动配平: 慢慢把升降舵偏度转移到配平通道
-      s.elevatorTrim = U.moveTowards(s.elevatorTrim,
-        U.clamp(s.elevatorTrim + s.elevator * 0.55, -0.9, 0.9), 0.10 * dt);
-      s.elevator *= 0.94;
+      var trimTarget = U.clamp(s.elevatorTrim + s.elevator * 0.55, -0.9, 0.9);
+      // 迎角保护 / 大俯仰角时禁止自动配平继续向抬头方向 (负值 = 抬头) 走
+      if (noseUpTrimInhibit && trimTarget < s.elevatorTrim) trimTarget = s.elevatorTrim;
+      s.elevatorTrim = U.moveTowards(s.elevatorTrim, trimTarget, 0.10 * dt);
+      if (!noseUpTrimInhibit || s.elevator > 0) s.elevator *= 0.94;
+      // 硬迎角限制器: 预测迎角超过 alphaMax - 0.8° 时直接加低头舵, 并快速把配平回到低头方向
+      if (aMax > 0) {
+        var aRate2 = this._alphaRateF || 0;
+        var over = this.alpha + aRate2 * 1.0 - (aMax - 1.5 * C.DEG);
+        if (over > 0) {
+          s.elevator = Math.max(s.elevator, U.clamp(over * 22, 0, 1));
+          s.elevatorTrim = U.moveTowards(s.elevatorTrim, Math.max(s.elevatorTrim, 0), 0.35 * dt);
+        }
+      }
 
       // 横滚: 速率需求
       var rollRateCmd = rIn * 15 * C.DEG;
@@ -768,7 +815,7 @@
       s.elevator = U.damp(s.elevator, -pIn, 0.09, dt);   // +俯仰杆量 = 抬头 = 升降舵上偏
       s.aileron = U.damp(s.aileron, rIn, 0.10, dt);
       // 偏航阻尼器 (正方向舵 = 机头右偏)
-      var yawDamp = this.ap.yawDamper ? (-this.rates.r * 0.9 + this.beta * 1.2) : 0;
+      var yawDamp = (this.ap.yawDamper && !this.wow && (this.tas || 0) > 25) ? (-this.rates.r * 0.9 + this.beta * 1.2) : 0;
       s.rudder = U.damp(s.rudder, U.clamp(yIn + yawDamp * 0.6, -1, 1), 0.12, dt);
       // 人工配平
       if (this.trimInput) {

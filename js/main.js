@@ -1,5 +1,5 @@
 /* ==========================================================================
-   飞行模拟器 — 主程序 (main.js)
+   天际航线 SkyRoute — 主程序 (main.js)
      渲染循环 / 世界装配 / 场景启动 / 告警系统 / GPWS / TCAS / 音效联动
    ========================================================================== */
 (function (global) {
@@ -309,6 +309,34 @@
       }
     }
 
+    /* ---- beta 0.3: 真实跑道道面 + 跑道带状平整区 (出发/目的机场及参考点 250 km 内的机场) ---- */
+    try {
+      var rwyAirports = FS.Runways.nearbyAirports(250, [dep, opts.arrIcao ? FS.Airports.byIcao(opts.arrIcao) : null]);
+      this.runwayGroups = [];
+      this.runwayAirports = rwyAirports;
+      for (var rf = 0; rf < rwyAirports.length; rf++) FS.Runways.addFlatten(this.env, rwyAirports[rf]);
+      for (var ra = 0; ra < rwyAirports.length; ra++) {
+        var rg = FS.Runways.buildAirport(THREE, this.env, rwyAirports[ra]);
+        this.scene.add(rg);
+        this.runwayGroups.push(rg);
+      }
+    } catch (e) { FS.Log.warn('跑道道面生成失败: ' + e.message); }
+
+    /* ---- beta 0.3: 联网全球地景 (失败/离线时自动保持内置地形) ---- */
+    this.scenery = null;
+    if (FS.CFG.onlineScenery && FS.OnlineScenery && opts.online !== false) {
+      try {
+        this.scenery = new FS.OnlineScenery(this.env, this.scene, { imagery: FS.CFG.sceneryImagery });
+        FS.Log.info('联网地景: 已启用 (' + this.scenery.img.name + ')');
+      } catch (e) {
+        this.scenery = null;
+        FS.Log.warn('联网地景初始化失败, 使用内置地形: ' + e.message);
+      }
+    } else {
+      var oa = global.document && global.document.getElementById('scenery-attrib');
+      if (oa) oa.style.display = 'none';
+    }
+
     /* ---- 天气与时间 ---- */
     this.env.setTimeOfDay(opts.timeOfDay !== undefined ? opts.timeOfDay : 10);
     var wxPreset = FS.Environment.presetWeather(opts.weather || 'few');
@@ -323,6 +351,7 @@
     this.hud.showLoading && this.showLoading('正在构建 ' + FS.AIRCRAFT_DB[typeKey].nameZh + '…');
 
     var livery = null;
+    if (opts.livery && FS.LIVERY_ALIASES && FS.LIVERY_ALIASES[opts.livery]) opts.livery = FS.LIVERY_ALIASES[opts.livery];
     if (opts.livery) {
       for (var li = 0; li < FS.LIVERIES.length; li++) {
         if (FS.LIVERIES[li].id === opts.livery) livery = FS.LIVERIES[li];
@@ -428,7 +457,7 @@
     this._vspeedsCache = null;
     this.hideLoading();
 
-    this.hud.notify('起飞前: 按 F1 查看操作说明', 'info', 9000);
+    this.hud.notify('起飞前: 按 ? 或 F1 查看操作说明 · C 切换视角 · M 鼠标驾驶杆', 'info', 9000);
     FS.Log.info('飞行开始: ' + typeKey + ' @ ' + dep.icao + '/' + runwayIdent + ' 场景=' + scenarioId);
 
     // 尝试请求指针锁定 (失败也无妨)
@@ -453,6 +482,14 @@
     }
     this.aircraftModel = null;
     this.traffic = [];
+    if (this.scenery) { try { this.scenery.dispose(); } catch (e) { /* */ } this.scenery = null; }
+    if (this.runwayGroups) {
+      for (var gi = 0; gi < this.runwayGroups.length; gi++) {
+        this.scene.remove(this.runwayGroups[gi]);
+        if (this.runwayGroups[gi].userData.dispose) this.runwayGroups[gi].userData.dispose();
+      }
+      this.runwayGroups = null;
+    }
     this.env.clearFlattenZones && this.env.clearFlattenZones();
   };
 
@@ -511,7 +548,8 @@
       var p = FS.Geo.greatCircleOffset(ap.lat, ap.lon, brg, dist);
       var w = FS.Geo.toWorld(p.lat, p.lon);
       this.traffic.push({
-        callsign: ['CCA', 'CES', 'CSN', 'CXA', 'CPA', 'ANA', 'JAL', 'SIA', 'UAL', 'DLH', 'AFR', 'KLM'][Math.floor(Math.random() * 12)] +
+        // beta 0.3: 虚构呼号 (4 个字母, 不可能与 3 字母的真实航空公司 ICAO 代码重合)
+        callsign: ['NIMB', 'ZEFR', 'AURA', 'KITE', 'LUMO', 'ORCA', 'PIKA', 'SOLA', 'TERN', 'VELA', 'WREN', 'YUKI'][Math.floor(Math.random() * 12)] +
           (100 + Math.floor(Math.random() * 899)),
         x: w.x, z: w.z,
         altFt: ap.elevFt + U.range(-3000, 37000),
@@ -779,6 +817,10 @@
     /* ================= 世界 ================= */
     this.env.setFocus(fm.pos.x, fm.pos.z, fm.pos.y);
     this.env.update(rawDt, { x: fm.pos.x, y: fm.pos.y, z: fm.pos.z });
+    if (this.scenery) {
+      try { this.scenery.update(rawDt, { x: fm.pos.x, y: fm.pos.y, z: fm.pos.z }); }
+      catch (e) { FS.Log.warn('联网地景出错, 回退内置地形: ' + e.message); this.scenery.dispose(); this.scenery = null; }
+    }
     if (!this.paused) {
       this.env.setWind(this.env.getWeather().windDirDeg, this.env.getWeather().windSpeedKt,
         this.env.getWeather().gustKt, this.env.getWeather().turbulence);
@@ -828,7 +870,11 @@
 
     // 油门 (除非 A/THR 接管)
     if (!ap.ap.athr) {
-      for (var i = 0; i < fm.engines.length; i++) fm.setThrottle(i, input.axes.throttle);
+      // beta 0.3: 双油门杆 (TCA 油门台) -> 左/右发分别控制
+      for (var i = 0; i < fm.engines.length; i++) {
+        var two = fm.engines.length === 2;
+        fm.setThrottle(i, two ? (i === 0 ? input.axes.throttleL : input.axes.throttleR) : input.axes.throttle);
+      }
     } else {
       // A/THR 生效时同步手柄位置, 松手后不跳变
       input.axes.throttle = fm.throttle[0];
@@ -837,6 +883,14 @@
     // 刹车
     var braking = input.isDown('brakes') ? 1 : 0;
     fm.setBrakes(braking);
+
+    // 配平 (Home 低头 / End 抬头); 电传机型在正常法则下仍会自动配平
+    var trimIn = (input.isDown('elevatorTrimUp') ? 1 : 0) - (input.isDown('elevatorTrimDown') ? 1 : 0);
+    if (trimIn && fm.surfaces) {
+      fm.surfaces.elevatorTrim = U.clamp((fm.surfaces.elevatorTrim || 0) + trimIn * 0.25 * dt, -1, 1);
+    }
+    // 滚轮: 只在驾驶舱内调油门, 外部视角留给相机缩放
+    input.wheelThrottle = this.cameraRig.isInterior();
   };
 
   /* ---------------------------------------------------------------------
@@ -968,10 +1022,31 @@
   Sim.prototype._handleActions = function (input, st) {
     var fm = this.fm, ap = this.ap, self = this;
 
-    /* --- 视角 --- */
-    if (input.consume('viewNext')) {
+    /* --- 视角 (beta 0.3: C 循环, Shift+C 反向; 屏幕上的"视角"按钮同样可用) --- */
+    if (input.consume('viewPrev')) {
+      this.cameraRig.cycle(-1);
+      this.hud.notify('视角: ' + this.cameraRig.getModeName(), 'info', 1500);
+    } else if (input.consume('viewNext')) {
       this.cameraRig.cycle(1);
       this.hud.notify('视角: ' + this.cameraRig.getModeName(), 'info', 1500);
+    }
+    /* --- 暂停 (空格 / P) --- */
+    if (input.consume('pauseToggle')) {
+      if (!this.hud.menuOpen && !this.hud.pauseOpen) {
+        this.setPaused(!this.paused);
+        this.hud.notify(this.paused ? '已暂停 (空格 / P 继续)' : '继续', 'info', this.paused ? 4000 : 1200);
+        var pi = global.document.getElementById('pause-indicator');
+        if (pi) pi.classList.toggle('hidden', !this.paused);
+      }
+    }
+    /* --- 鼠标驾驶杆 (M) --- */
+    if (input.consume('mouseYoke')) {
+      input.setMouseYoke(!input.mouseYoke);
+      this.hud.notify(input.mouseYoke ? '鼠标驾驶杆: 开 (光标相对屏幕中心 = 杆量, 再按 M 关闭)' : '鼠标驾驶杆: 关', 'info', 3000);
+    }
+    /* --- 摇杆 AP 断开按钮 --- */
+    if (input.consume('apDisconnect')) {
+      if (ap.ap.engaged) ap.disengage('侧杆按钮断开');
     }
     var viewKeys = [
       ['viewCockpit', 'cockpit'], ['viewWing', 'wing'], ['viewChase', 'chase'],
@@ -1111,6 +1186,12 @@
       var ab = global.document.getElementById('apu-btn');
       if (ab) ab.classList.toggle('on', fm.apuRunning);
     }
+    if (input.consume('engineAllStart')) {
+      fm.startEngine('all'); this.hud.notify('起动全部发动机…', 'info');
+    }
+    if (input.consume('engine1Start')) {
+      fm.startEngine(0); this.hud.notify('发动机 1 起动中', 'info');
+    }
     if (input.consume('mute')) {
       if (this.audio.setMuted) {
         var muted = this.audio.getMasterVolume && this.audio.getMasterVolume() > 0;
@@ -1209,7 +1290,7 @@
      入口
      ===================================================================== */
   function boot() {
-    FS.Log.info('=== 飞行模拟器 v' + FS.CFG.version + ' 启动 ===');
+    FS.Log.info('=== 天际航线 SkyRoute v' + FS.CFG.version + ' 启动 ===');
 
     // 依赖检查
     var missing = [];
@@ -1265,10 +1346,17 @@
     if (p.time !== undefined) s.timeOfDay = parseFloat(p.time);
     if (p.fuel !== undefined) s.fuelPct = parseFloat(p.fuel);
     if (p.payload !== undefined) s.payloadPct = parseFloat(p.payload);
-    if (p.livery) s.livery = p.livery;
+    if (p.livery) s.livery = (FS.LIVERY_ALIASES && FS.LIVERY_ALIASES[p.livery]) || p.livery;
     if (p.rwy) s.runwayIdent = p.rwy;
     // beta 0.2: ?procedural=1 强制使用 v0.1 的程序化飞机模型 (对比/排错用)
     if (p.procedural !== undefined && p.procedural !== '0') FS.CFG.proceduralModels = true;
+    // beta 0.3: ?online=0|1 联网地景开关 (不写入 localStorage), ?imagery=s2-2016|s2-2024|gibs
+    if (p.online !== undefined) FS.CFG.onlineScenery = p.online !== '0' && p.online !== 'off';
+    if (p.imagery && FS.OnlineScenery && FS.OnlineScenery.SOURCES.imagery[p.imagery]) FS.CFG.sceneryImagery = p.imagery;
+    var osEl = global.document.getElementById('online-scenery');
+    if (osEl) osEl.value = FS.CFG.onlineScenery ? '1' : '0';
+    var imEl = global.document.getElementById('imagery-select');
+    if (imEl) imEl.value = FS.CFG.sceneryImagery;
 
     // 只有显式要求时才显示日志面板 (出错时会自动显示)
     if (p.log !== undefined) {

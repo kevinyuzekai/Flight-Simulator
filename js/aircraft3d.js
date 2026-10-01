@@ -1,5 +1,5 @@
 /* ==========================================================================
-   飞行模拟器 — 飞机三维机体建模 (aircraft3d.js)
+   天际航线 SkyRoute — 飞机三维机体建模 (aircraft3d.js)
    依赖: three.js (全局 THREE, r149) / utils.js / config.js
    --------------------------------------------------------------------------
    机体坐标系 (与 FS.AIRCRAFT_DB.dims 一致):
@@ -1008,9 +1008,11 @@
         var g = new THREE.Group();
         g.name = name;
         g.rotation.order = 'ZYX';                 // 先绕自身 X 铰链偏转, 再按弯折角改姿态
-        var st0 = station([0, 0, edgeOff * c0], c0 * ratio, c0 * ratio * thickRatio, [0, 0, 1], [0, 1, 0], yOff);
+        // beta 0.3 修正: 组原点已经放在铰链线上 (动画里 position.z = hingeZ + pose.z),
+        // v0.1 在板面顶点里又加了一次 edgeOff*c0, 导致襟翼/缝翼/副翼整体错位, 看起来"脱离"机翼。
+        var st0 = station([0, 0, 0], c0 * ratio, c0 * ratio * thickRatio, [0, 0, 1], [0, 1, 0], yOff);
         var st1 = station([side * (t1 - t0) * plan.halfSkin, 0,
-          plan.leZAt(t1) - plan.leZAt(t0) + edgeOff * c1], c1 * ratio, c1 * ratio * thickRatio,
+          plan.leZAt(t1) - plan.leZAt(t0) + edgeOff * (c1 - c0)], c1 * ratio, c1 * ratio * thickRatio,
           [0, 0, 1], [0, 1, 0], yOff);
         var geo = loftProfile(profWing, [st0, st1], side < 0, true, true);
         g.add(new THREE.Mesh(geo, matWing));
@@ -1024,7 +1026,7 @@
       }
 
       // 前缘缝翼 (铰链在前缘, 板面伸向前缘之前 20% 弦长, 放下时前伸下垂)
-      ctrlGroup('slat' + (side > 0 ? 'R' : 'L'), 0.09, 0.50, -0.20, 0.20, 0.10, 0);
+      ctrlGroup('slat' + (side > 0 ? 'R' : 'L'), 0.09, 0.50, -0.015, 0.17, 0.16, 0);  // beta 0.3: 收起时贴合前缘
       // 后退襟翼 (富勒襟翼: 后缘 26% 弦长)
       ctrlGroup('flap' + (side > 0 ? 'R' : 'L'), 0.05, 0.58, 0.74, 0.26, 0.10, 0);
       // 副翼
@@ -1289,12 +1291,15 @@
       parts[side > 0 ? 'exhaustR' : 'exhaustL'] = ex;
 
       // 吊挂 (从短舱顶延伸到机翼下表面; 在吊挂局部坐标系中, 发动机中心为 y=0)
-      var mountZ = d.enginePos.z - (d.wingPos.z - 0.34 * d.wingRootChord);
+      // beta 0.3 修正: 吊挂是 mount 的子对象, mount 已经平移到发动机位置,
+      // v0.1 在这里又加了一次 enginePos.z 偏移, 吊挂因此漂到短舱后方很远处。
+      // 现以短舱中心为原点, 吊挂从短舱上方前段一直延伸到机翼前缘之后。
+      var mountZ = NL * 0.12;
       var pBotY = RR * 0.88;
       var wingLowLocal = (d.wingPos.y + plan.poseAt(plan.tEng, 0).y) - plan.engY
         - 0.42 * plan.chordAt(plan.tEng) * plan.thickRatioAt(plan.tEng);
       var pTopY = Math.max(pBotY + 0.25, wingLowLocal);
-      var pCh = Math.max(1.4, d.pylonLen * 0.55);
+      var pCh = Math.max(1.4, d.pylonLen * 0.55, NL * 0.62);
       function rectProfile() {
         return [[0, 0.5], [0.45, 0.5], [1, 0.28], [1, -0.28], [0.45, -0.5], [0, -0.5]];
       }
@@ -1475,82 +1480,291 @@
     /* ================================================================
        10.7 灯光
        ================================================================ */
+    /**
+     * beta 0.3: 从模型实际几何量取灯位锚点 (真实模型与程序化模型通用)。
+     * 在静止姿态 (弯折 0, 舵面中立) 下遍历结构网格顶点 (排除起落架/舵面/发动机/灯),
+     * 在本组局部坐标 (x 右, y 上, z 向后) 中求:
+     *   翼尖外端 (去掉上翘的翼梢小翼, 取主翼平面内最外侧的前缘/后缘点),
+     *   尾锥末端, 机翼处机背/机腹, 平尾上表面中段, 翼根前缘。
+     */
+    function measureAnchors() {
+      group.updateMatrixWorld(true);
+      var inv = new THREE.Matrix4().copy(group.matrixWorld).invert();
+      var EXCL = /gear|wheel|bogie|door|strut|lamp|light|vapour|slat|flap|aileron|spoiler|elevator|rudder|reverser|cascade|fan|spinner|exhaust|engine|pylon|cabin|cockpit/i;
+      var P = [], v = new THREE.Vector3(), m4 = new THREE.Matrix4();
+      function excluded(o) {
+        for (var q = o; q && q !== group; q = q.parent) if (q.name && EXCL.test(q.name)) return true;
+        return false;
+      }
+      var meshes = [];
+      group.traverse(function (o) {
+        if (!o.isMesh || !o.geometry || !o.geometry.attributes.position || excluded(o)) return;
+        meshes.push(o);
+        var pa = o.geometry.attributes.position, n = pa.count, step = n > 60000 ? 2 : 1, i;
+        m4.multiplyMatrices(inv, o.matrixWorld);
+        for (i = 0; i < n; i += step) {
+          v.fromBufferAttribute(pa, i).applyMatrix4(m4);
+          P.push(v.x, v.y, v.z);
+        }
+      });
+      var N = P.length / 3, i, x, y, z;
+      if (N < 50) return null;
+      var zMin = 1e9, zMax = -1e9, xMax = -1e9;
+      for (i = 0; i < N; i++) {
+        z = P[i * 3 + 2]; x = Math.abs(P[i * 3]);
+        if (z < zMin) zMin = z; if (z > zMax) zMax = z; if (x > xMax) xMax = x;
+      }
+      var Lb = zMax - zMin;
+      // 机身截面 (机头后 22% 处, 纯机身段)
+      var zRef = zMin + 0.22 * Lb, R = 0, yTop = -1e9, yBot = 1e9;
+      for (i = 0; i < N; i++) {
+        if (Math.abs(P[i * 3 + 2] - zRef) > 0.8) continue;
+        x = Math.abs(P[i * 3]); y = P[i * 3 + 1];
+        if (x > R) R = x; if (y > yTop) yTop = y; if (y < yBot) yBot = y;
+      }
+      if (!(R > 0.5)) R = plan.R;
+      var yC = (yTop + yBot) / 2;
+
+      // 翼尖: 先用 60%~85% 半展长的下表面拟合主翼平面 (y = a + b|x|), 再排除高出该平面的小翼部分
+      var sx = 0, sy = 0, sxx = 0, sxy = 0, cnt = 0, bins = {}, k;
+      for (i = 0; i < N; i++) {
+        x = Math.abs(P[i * 3]);
+        if (x < 0.60 * xMax || x > 0.85 * xMax) continue;
+        k = Math.round(x / 0.5);
+        y = P[i * 3 + 1];
+        if (bins[k] === undefined || y < bins[k][1]) bins[k] = [x, y];
+      }
+      for (k in bins) if (bins.hasOwnProperty(k)) {
+        x = bins[k][0]; y = bins[k][1]; sx += x; sy += y; sxx += x * x; sxy += x * y; cnt++;
+      }
+      var fb = cnt > 2 ? (cnt * sxy - sx * sy) / Math.max(1e-6, cnt * sxx - sx * sx) : 0;
+      var fa = cnt > 0 ? (sy - fb * sx) / cnt : yC;
+      function tipFor(side) {
+        var best = -1e9, j, ok = [];
+        for (j = 0; j < N; j++) {
+          x = P[j * 3] * side; if (x < 0.8 * xMax) continue;
+          y = P[j * 3 + 1];
+          if (y > fa + fb * x + 0.9) continue;          // 小翼上翘段不算
+          ok.push(j); if (x > best) best = x;
+        }
+        // 外端 0.45 m 窗口内: 最前点 = 翼尖前缘, 最后点 = 翼尖后缘 (各自保留真实 x/y, 斜削翼尖也贴合)
+        var le = null, te = null, yLo = 1e9, yHi = -1e9;
+        for (j = 0; j < ok.length; j++) {
+          var q = ok[j]; if (P[q * 3] * side < best - 0.45) continue;
+          z = P[q * 3 + 2]; y = P[q * 3 + 1];
+          if (!le || z < le[2]) le = [P[q * 3], y, z];
+          if (!te || z > te[2]) te = [P[q * 3], y, z];
+          if (y < yLo) yLo = y; if (y > yHi) yHi = y;
+        }
+        return { x: side * best, y: (yLo + yHi) / 2, zLE: le[2], zTE: te[2], le: le, te: te };
+      }
+      var tR = tipFor(1), tL = tipFor(-1);
+
+      // 尾锥末端 (中线附近, 排除垂尾: y 不高于机身中心 + 1.1R)
+      var tc = { y: yC, z: zMax };
+      var tzBest = -1e9;
+      for (i = 0; i < N; i++) {
+        if (Math.abs(P[i * 3]) > 0.5) continue;
+        y = P[i * 3 + 1]; z = P[i * 3 + 2];
+        if (y > yC + 1.1 * R) continue;
+        if (z > tzBest) { tzBest = z; tc.y = y; tc.z = z; }
+      }
+      // 尾锥末端附近的截面中心
+      var ty0 = 1e9, ty1 = -1e9;
+      for (i = 0; i < N; i++) {
+        if (Math.abs(P[i * 3]) > 0.6 || P[i * 3 + 2] < tc.z - 0.5) continue;
+        y = P[i * 3 + 1]; if (y > yC + 1.1 * R) continue;
+        if (y < ty0) ty0 = y; if (y > ty1) ty1 = y;
+      }
+      if (ty1 > ty0) tc.y = (ty0 + ty1) / 2;
+
+      // 机翼中部站位 (翼根弦中点) 的机背/机腹
+      var rootLE = 1e9, rootTE = -1e9, rootY = 0, rc = 0;
+      for (i = 0; i < N; i++) {
+        x = Math.abs(P[i * 3]);
+        if (x < R + 0.6 || x > R + 1.6) continue;
+        y = P[i * 3 + 1]; if (y > yC) continue;           // 下单翼
+        z = P[i * 3 + 2]; if (z < zMin + 0.15 * Lb || z > zMin + 0.75 * Lb) continue;
+        if (z < rootLE) { rootLE = z; rootY = y; }
+        if (z > rootTE) rootTE = z;
+        rc++;
+      }
+      if (!rc) { rootLE = d.wingPos.z - d.wingRootChord * 0.62; rootTE = rootLE + d.wingRootChord; rootY = d.wingPos.y; }
+      var zW = (rootLE + rootTE) / 2;
+      // 竖直射线求表面 (低面数真实模型的顶点稀疏, 用顶点窗口不可靠)
+      var rc0 = new THREE.Raycaster(), gw = group.matrixWorld;
+      function surfY(xx, zz, top, yLimit) {
+        var o = new THREE.Vector3(xx, top ? 200 : -200, zz).applyMatrix4(gw);
+        var t = new THREE.Vector3(xx, top ? -200 : 200, zz).applyMatrix4(gw);
+        rc0.set(o, t.sub(o).normalize()); rc0.far = 1000;
+        var hits = rc0.intersectObjects(meshes, false), best = null, j;
+        for (j = 0; j < hits.length; j++) {
+          var hp = hits[j].point.clone().applyMatrix4(inv);
+          if (top) { if (yLimit === undefined || hp.y > yLimit) { best = hp.y; break; } }
+          else if (hp.y < yLimit && (best === null || hp.y > best)) best = hp.y;   // 机腹 (跳过起落架)
+        }
+        return best;
+      }
+      function bodyY(zc, dz, top) {
+        var ry = surfY(0, zc, top, top ? undefined : yC);
+        if (ry !== null) return ry;
+        var r = top ? -1e9 : 1e9, j;
+        for (j = 0; j < N; j++) {
+          if (Math.abs(P[j * 3]) > 0.35 || Math.abs(P[j * 3 + 2] - zc) > dz) continue;
+          y = P[j * 3 + 1];
+          if (top ? y > r : y < r) r = y;
+        }
+        if (r > -1e8 && r < 1e8) return r;
+        return dz < 3 ? bodyY(zc, dz * 2.5, top) : (top ? yC + R : yC - R);
+      }
+      var bTopZ = zW - 0.5, bBotZ = rootTE + 1.0;
+      var bTopY = bodyY(bTopZ, 0.6, true), bBotY = bodyY(bBotZ, 0.6, false);
+
+      // 平尾: 尾部 25% 机身内, |x| > 1.3R 的点 (垂尾在中线, 不会被选中)
+      var stX = 0, sPts = [];
+      for (i = 0; i < N; i++) {
+        z = P[i * 3 + 2]; if (z < zMax - 0.25 * Lb) continue;
+        x = Math.abs(P[i * 3]); if (x < 1.3 * R) continue;
+        if (P[i * 3 + 1] > yC + 2.0 * R) continue;        // T 尾以外的普通平尾
+        sPts.push(i); if (x > stX) stX = x;
+      }
+      var logo = null;
+      if (sPts.length > 6 && stX > 2 * R) {
+        // 低面数模型在展向中段可能没有顶点, 因此取根部/翼尖两个站位再线性插值
+        var xr = 1e9, kk, q2;
+        for (kk = 0; kk < sPts.length; kk++) { x = Math.abs(P[sPts[kk] * 3]); if (x < xr) xr = x; }
+        var stn = function (x0, x1) {
+          var o = { le: 1e9, te: -1e9, top: -1e9 };
+          for (var j = 0; j < sPts.length; j++) {
+            q2 = sPts[j]; var ax = Math.abs(P[q2 * 3]); if (ax < x0 || ax > x1) continue;
+            var yy = P[q2 * 3 + 1], zz = P[q2 * 3 + 2];
+            if (zz < o.le) o.le = zz; if (zz > o.te) o.te = zz; if (yy > o.top) o.top = yy;
+          }
+          return o;
+        };
+        var st2 = stn(stX - Math.max(0.5, 0.06 * (stX - xr)), stX);
+        if (st2.top > -1e8) {
+          // 低面数模型的平尾往往只有根部 (藏在机身内) 和翼尖两排顶点, 所以在 30% 展长处
+          // 沿弦向打一排竖直射线, 直接求该站位的前缘/后缘与上表面
+          var xr2 = 0.6 * R, lx = xr2 + 0.30 * (stX - xr2);
+          var zs = zMax - 0.30 * Lb, zFirst = null, zLast = null, yAt = null, zz2;
+          for (zz2 = zs; zz2 <= zMax; zz2 += 0.15) {
+            var hy = surfY(lx, zz2, true);
+            if (hy === null || Math.abs(hy - st2.top) > 2.5) continue;
+            if (zFirst === null) zFirst = zz2;
+            zLast = zz2;
+          }
+          if (zFirst !== null) {
+            var lz = zFirst + 0.30 * (zLast - zFirst);
+            yAt = surfY(lx, lz, true);
+            if (yAt !== null) logo = { x: lx, y: yAt, z: lz, span: stX, le: zFirst, te: zLast };
+          }
+        }
+      }
+      // 翼根前缘附近机身侧面 (机翼照明灯) 半宽
+      var sideX = 0;
+      for (i = 0; i < N; i++) {
+        if (Math.abs(P[i * 3 + 2] - (rootLE - 1.2)) > 0.5) continue;
+        if (Math.abs(P[i * 3 + 1] - (rootY + 1.0)) > 0.4) continue;
+        x = Math.abs(P[i * 3]); if (x > sideX && x < 1.3 * R) sideX = x;
+      }
+      return {
+        R: R, yC: yC, tipR: tR, tipL: tL, tail: tc,
+        beaconTop: { y: bTopY, z: bTopZ }, beaconBot: { y: bBotY, z: bBotZ },
+        rootLE: rootLE, rootY: rootY, logo: logo, sideX: sideX || R
+      };
+    }
+
     function buildLights() {
       var L2 = parts.lights = parts.lights || {};
       var lampList = [];
       function reg(lamp, key) { lampList.push({ g: lamp, key: key }); return lamp; }
-      var tipPose = plan.poseAt(1.0, 0);
-      var tipY = d.wingPos.y + tipPose.y;
-      var tipZ = d.wingPos.z - 0.34 * d.wingRootChord + tipPose.z + plan.chordAt(1) * 0.45;
-      var tipX = plan.halfSkin + (d.wingletHeight || 0) * 0.6;
-      var tipUp = plan.isRaked ? 0.1 : d.wingletHeight * 0.7;
+      var M = null;
+      try { M = measureAnchors(); } catch (e) { M = null; }
       var A = asset && asset.anchors;
-      if (A) { tipX = A.tipR[0] - 0.15; tipY = A.tipR[1]; tipZ = A.tipR[2]; tipUp = 0; }
+      if (!M) {
+        // 兜底: 旧版计划值 (仅在几何测量失败时使用)
+        var tp = plan.poseAt(1.0, 0), tz = d.wingPos.z - 0.34 * d.wingRootChord + tp.z;
+        var tx = A ? A.tipR[0] : plan.halfSkin, ty = A ? A.tipR[1] : d.wingPos.y + tp.y;
+        M = {
+          R: plan.R, yC: 0,
+          tipR: { x: tx, y: ty, zLE: A ? A.tipR[2] - 0.6 : tz, zTE: A ? A.tipR[2] + 1.0 : tz + plan.chordAt(1) },
+          tipL: { x: -tx, y: ty, zLE: A ? A.tipR[2] - 0.6 : tz, zTE: A ? A.tipR[2] + 1.0 : tz + plan.chordAt(1) },
+          tail: { y: A ? A.tail[1] : 0, z: A ? A.tail[2] : plan.zT },
+          beaconTop: { y: A ? A.bodyTopAtWing : plan.R, z: d.wingPos.z - 3 },
+          beaconBot: { y: A ? A.bodyBotAtWing : -plan.R, z: d.wingPos.z + 2.4 },
+          rootLE: d.wingPos.z - d.wingRootChord * 0.62, rootY: d.wingPos.y, logo: null, sideX: plan.R
+        };
+      }
+      rig.anchors = M;
+      // 后航行灯样式: 空客/C919 在尾锥, 波音/E190 在两侧翼尖后缘
+      var aftOnTips = !!ac.isBoeing || /^E1/.test(ac.key || '');
+      var hasTailStrobe = true;   // 各型尾锥均有白色频闪
 
-      // 航行灯 (左红右绿)
-      var gL = new THREE.Group();
-      gL.position.set(-tipX, tipY + tipUp, tipZ);
-      var lampL = reg(makeLamp(0xff2b2b, 0.16, { scale: [1, 1, 1.6] }), 'nav');
-      gL.add(lampL); group.add(gL); L2.navL = lampL;
+      function at(lamp, x, y, z) { lamp.position.set(x, y, z); group.add(lamp); return lamp; }
+      var tR = M.tipR, tL = M.tipL;
+      function tipPts(t, side) {
+        var le = t.le || [t.x, t.y, t.zLE], te = t.te || [t.x, t.y, t.zTE];
+        var chord = te[2] - le[2], ym = t.y;
+        var nav = [le[0] + side * 0.08, ym, le[2] + Math.min(0.5, 0.30 * chord)];
+        var f = 0.55, str = [le[0] + (te[0] - le[0]) * f + side * 0.08, ym, le[2] + chord * f];
+        var aft = [te[0] + side * 0.04, ym, te[2] + 0.05];
+        return { nav: nav, str: str, aft: aft };
+      }
+      var pR = tipPts(tR, 1), pL = tipPts(tL, -1);
+      function atA(lamp, a3) { return at(lamp, a3[0], a3[1], a3[2]); }
 
-      var gR = new THREE.Group();
-      gR.position.set(tipX, tipY + tipUp, tipZ);
-      var lampR = reg(makeLamp(0x2bff5a, 0.16, { scale: [1, 1, 1.6] }), 'nav');
-      gR.add(lampR); group.add(gR); L2.navR = lampR;
+      // 航行灯: 左翼尖红, 右翼尖绿 (翼尖前缘外端)
+      L2.navL = atA(reg(makeLamp(0xff2b2b, 0.16, { scale: [1, 1, 1.6] }), 'nav'), pL.nav);
+      L2.navR = atA(reg(makeLamp(0x2bff5a, 0.16, { scale: [1, 1, 1.6] }), 'nav'), pR.nav);
 
-      // 频闪灯 (翼尖 + 尾锥) —— 只用自发光灯罩, 不加点光源以控制着色器开销
-      var strL = reg(makeLamp(0xffffff, 0.20, {}), 'strobe');
-      strL.position.set(-tipX, tipY + tipUp - 0.22, tipZ);
-      group.add(strL); L2.strobeL = strL;
-      var strR = reg(makeLamp(0xffffff, 0.20, {}), 'strobe');
-      strR.position.set(tipX, tipY + tipUp - 0.22, tipZ);
-      group.add(strR); L2.strobeR = strR;
+      // 频闪灯: 两侧翼尖
+      L2.strobeL = atA(reg(makeLamp(0xffffff, 0.18, {}), 'strobe'), pL.str);
+      L2.strobeR = atA(reg(makeLamp(0xffffff, 0.18, {}), 'strobe'), pR.str);
 
-      var strT = reg(makeLamp(0xffffff, 0.22, {}), 'strobe');
-      strT.position.set(0, plan.tailTop(plan.zT - 0.4), plan.zT - 0.35);
-      if (A) strT.position.set(0, A.tail[1], A.tail[2] + 0.05);
-      group.add(strT); L2.strobeTail = strT;
+      // 白色后航行灯
+      if (aftOnTips) {
+        L2.navTail = atA(reg(makeLamp(0xffffff, 0.13, {}), 'nav'), pL.aft);
+        L2.navTailR = atA(reg(makeLamp(0xffffff, 0.13, {}), 'nav'), pR.aft);
+      } else {
+        L2.navTail = at(reg(makeLamp(0xffffff, 0.13, {}), 'nav'), 0, M.tail.y + 0.12, M.tail.z + 0.05);
+      }
+      // 尾锥白色频闪
+      if (hasTailStrobe) {
+        L2.strobeTail = at(reg(makeLamp(0xffffff, 0.18, {}), 'strobe'), 0, M.tail.y - (aftOnTips ? 0 : 0.14), M.tail.z + 0.05);
+      }
 
-      // 尾灯 (白色)
-      var navT = reg(makeLamp(0xffffff, 0.13, {}), 'nav');
-      navT.position.set(0, plan.tailTop(plan.zT - 0.2) - 0.12, plan.zT - 0.05);
-      if (A) navT.position.set(0, A.tail[1] - 0.15, A.tail[2] + 0.05);
-      group.add(navT); L2.navTail = navT;
+      // 红色防撞灯: 机背 / 机腹 (机翼站位)
+      L2.beaconTop = at(reg(makeLamp(0xff3020, 0.20, { point: Q.detail > 0, power: 1.0, dist: 90 }), 'beacon'), 0, M.beaconTop.y + 0.10, M.beaconTop.z);
+      L2.beaconBottom = at(reg(makeLamp(0xff3020, 0.18, {}), 'beacon'), 0, M.beaconBot.y - 0.10, M.beaconBot.z);
 
-      // 防撞灯 (机背 / 机腹, 红)
-      var bTop = reg(makeLamp(0xff3020, 0.20, { point: Q.detail > 0, power: 1.0, dist: 90 }), 'beacon');
-      bTop.position.set(0, A ? A.bodyTopAtWing + 0.08 : plan.R * plan.ryScale * 1.02, d.wingPos.z - 3.0);
-      group.add(bTop); L2.beaconTop = bTop;
-      var bBot = reg(makeLamp(0xff3020, 0.18, {}), 'beacon');
-      bBot.position.set(0, A ? A.bodyBotAtWing - 0.08 : -plan.R * plan.flatBottom * 1.02, d.wingPos.z + 2.4);
-      group.add(bBot); L2.beaconBottom = bBot;
+      // 着陆灯: 翼根前缘下方 (两侧)
+      var lx = M.R + 1.1, lz = M.rootLE + 0.55, ly = M.rootY - 0.12;
+      L2.landingL = at(reg(makeLamp(0xfff6e0, 0.22, { point: Q.detail > 0, power: 2.6, dist: 300, scale: [1, 1, 1.2] }), 'landing'), -lx, ly, lz);
+      L2.landingR = at(reg(makeLamp(0xfff6e0, 0.22, { point: Q.detail > 0, power: 2.6, dist: 300, scale: [1, 1, 1.2] }), 'landing'), lx, ly, lz);
 
-      // 着陆灯 / 滑行灯 (翼根前缘 + 前起落架)
-      var landL = reg(makeLamp(0xfff6e0, 0.22, { point: Q.detail > 0, power: 2.6, dist: 300, scale: [1, 1, 1.2] }), 'landing');
-      landL.position.set(-plan.R * 1.15, d.wingPos.y - 0.55, d.wingPos.z - d.wingRootChord * 0.62);
-      if (A) landL.position.set(-plan.R * 1.18, A.wingRootLEPt[1] - 0.25, A.wingRootLE + 0.6);
-      group.add(landL); L2.landingL = landL;
-      var landR = reg(makeLamp(0xfff6e0, 0.22, { point: Q.detail > 0, power: 2.6, dist: 300, scale: [1, 1, 1.2] }), 'landing');
-      landR.position.set(plan.R * 1.15, d.wingPos.y - 0.55, d.wingPos.z - d.wingRootChord * 0.62);
-      if (A) landR.position.set(plan.R * 1.18, A.wingRootLEPt[1] - 0.25, A.wingRootLE + 0.6);
-      group.add(landR); L2.landingR = landR;
-
+      // 滑行灯: 前起落架支柱上 (挂到前起落架组, 随之收放)
       var taxi = reg(makeLamp(0xfff4d8, 0.16, { point: Q.detail > 0, power: 1.6, dist: 140 }), 'taxi');
-      taxi.position.set(0, plan.noseAxleY + 0.30, d.gear.nose.z - 0.55);
-      group.add(taxi); L2.taxi = taxi;
+      var tpos = new THREE.Vector3(0, plan.noseAxleY + 0.55, d.gear.nose.z - 0.30);
+      if (rig.gearNose) {
+        group.updateMatrixWorld(true);
+        var wp = tpos.clone().applyMatrix4(group.matrixWorld);
+        rig.gearNose.worldToLocal(wp);
+        taxi.position.copy(wp);
+        rig.gearNose.add(taxi);
+      } else at(taxi, tpos.x, tpos.y, tpos.z);
+      L2.taxi = taxi;
 
-      // 标志灯 (垂直尾翼两侧)
-      var logo = reg(makeLamp(0xfff0d0, 0.14, { scale: [1, 1, 1] }), 'logo');
-      logo.position.set(plan.R * 0.5, plan.finBase + d.finHeight * 0.18, d.finPos.z + 0.6);
-      group.add(logo); L2.logo = logo;
+      // 标志灯: 平尾上表面 (两侧, 照向垂尾)
+      if (M.logo) {
+        L2.logo = at(reg(makeLamp(0xfff0d0, 0.12, {}), 'logo'), M.logo.x, M.logo.y + 0.06, M.logo.z);
+        L2.logoL = at(reg(makeLamp(0xfff0d0, 0.12, {}), 'logo'), -M.logo.x, M.logo.y + 0.06, M.logo.z);
+      }
 
-      // 机翼照明灯 (机翼根部, 照亮机翼上表面)
-      var wlL = reg(makeLamp(0xfff2dc, 0.13, {}), 'wing');
-      wlL.position.set(-plan.R * 0.92, d.wingPos.y + 0.35, d.wingPos.z - d.wingRootChord * 0.5);
-      group.add(wlL); L2.wingL = wlL;
-      var wlR = reg(makeLamp(0xfff2dc, 0.13, {}), 'wing');
-      wlR.position.set(plan.R * 0.92, d.wingPos.y + 0.35, d.wingPos.z - d.wingRootChord * 0.5);
-      group.add(wlR); L2.wingR = wlR;
+      // 机翼照明灯 (翼根前方机身两侧, 照亮机翼前缘)
+      var wy = M.rootY + 1.0, wz = M.rootLE - 1.2, wx = M.sideX + 0.04;
+      L2.wingL = at(reg(makeLamp(0xfff2dc, 0.11, {}), 'wing'), -wx, wy, wz);
+      L2.wingR = at(reg(makeLamp(0xfff2dc, 0.11, {}), 'wing'), wx, wy, wz);
 
       rig.lampList = lampList;
     }
@@ -1613,8 +1827,6 @@
         if (rig.mountR && parts.wingR) parts.wingR.add(rig.mountR);
       }
       buildGear();
-      buildLights();
-      buildVapour();
 
       // 操纵面引用 (避免每帧 getObjectByName 遍历场景树)
       var byName = function (n) { return group.getObjectByName(n) || null; };
@@ -1631,6 +1843,10 @@
       rig.tipL = byName('tipL');
       rig.tipR = byName('tipR');
       rig.wheelList = [].concat(parts.wheelNose || [], parts.wheelsMainL || [], parts.wheelsMainR || []);
+      // 先摆到静止姿态 (翼尖/舵面就位), 再按实际几何量取灯位
+      try { update(1 / 60, { gearPos: 1 }); } catch (e) { /* ignore */ }
+      buildLights();
+      buildVapour();
 
       // 阴影
       group.traverse(function (o) {
@@ -1904,6 +2120,8 @@
       parts: parts,
       dims: d,
       plan: plan,
+      getAnchors: function () { return rig.anchors || null; },
+      getLamps: function () { return rig.lampList || []; },
       update: update,
       setLights: function (flags) {
         flags = flags || {};

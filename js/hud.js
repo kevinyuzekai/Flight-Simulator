@@ -1,5 +1,5 @@
 /* ==========================================================================
-   飞行模拟器 — 界面控制 (hud.js)
+   天际航线 SkyRoute — 界面控制 (hud.js)
      主菜单 / 载入画面 / FCU 自动驾驶面板 / 中央操纵台 / 通知 / 暂停菜单
      所有 DOM 由 index.html 提供骨架, 这里负责数据绑定与交互
    ========================================================================== */
@@ -278,6 +278,18 @@
     on('runway-select', 'change', function (e) { s.runwayIdent = e.target.value; self._updateMenuSummary(); });
     on('weather-select', 'change', function (e) { s.weather = e.target.value; });
     on('livery-select', 'change', function (e) { s.livery = e.target.value; self._updateMenuSummary(); });
+    // beta 0.3: 联网地景开关 + 影像源 (保存到 localStorage)
+    var os = $('online-scenery'), is = $('imagery-select');
+    if (os) os.value = FS.CFG.onlineScenery ? '1' : '0';
+    if (is) is.value = FS.CFG.sceneryImagery || 's2-2016';
+    on('online-scenery', 'change', function (e) {
+      FS.CFG.onlineScenery = e.target.value === '1';
+      try { global.localStorage.setItem('fs.onlineScenery', FS.CFG.onlineScenery ? '1' : '0'); } catch (er) { /* */ }
+    });
+    on('imagery-select', 'change', function (e) {
+      FS.CFG.sceneryImagery = e.target.value;
+      try { global.localStorage.setItem('fs.sceneryImagery', e.target.value); } catch (er) { /* */ }
+    });
 
     on('time-slider', 'input', function (e) {
       s.timeOfDay = parseFloat(e.target.value);
@@ -757,6 +769,37 @@
       var p = $('displays');
       if (p) p.classList.toggle('hidden');
     });
+
+    /* ---- beta 0.3: 视角按钮 (点击/触摸循环, 下拉直接选择) ---- */
+    var vsel = $('view-select');
+    if (vsel && FS.CameraRig && FS.CameraRig.VIEW_LIST) {
+      vsel.innerHTML = '';
+      FS.CameraRig.VIEW_LIST.forEach(function (v) {
+        var o = el('option'); o.value = v.id; o.textContent = v.name; vsel.appendChild(o);
+      });
+      vsel.addEventListener('change', function () {
+        sim.cameraRig.setMode(vsel.value);
+        self.notify('视角: ' + sim.cameraRig.getModeName(), 'info', 1500);
+        vsel.blur();
+      });
+    }
+    btn('view-btn', function () {
+      sim.cameraRig.cycle(1);
+      self.notify('视角: ' + sim.cameraRig.getModeName(), 'info', 1500);
+    });
+    FS.Bus.on('camera:mode', function (e) {
+      var vn = $('view-name'); if (vn) vn.textContent = (e.name || '').replace(/\s*\(.*\)/, '');
+      var vs = $('view-select'); if (vs && vs.value !== e.mode) vs.value = e.mode;
+    });
+    btn('yoke-btn', function () {
+      if (!sim.input) return;
+      sim.input.setMouseYoke(!sim.input.mouseYoke);
+      self.notify(sim.input.mouseYoke ? '鼠标驾驶杆: 开 (光标相对屏幕中心 = 杆量, M 键关闭)' : '鼠标驾驶杆: 关', 'info', 3000);
+    });
+    FS.Bus.on('input:mouseYoke', function (e) {
+      var b = $('yoke-btn'); if (b) b.classList.toggle('on', !!e.on);
+      var r = $('yoke-reticle'); if (r) r.classList.toggle('hidden', !e.on);
+    });
     btn('ui-toggle', function () {
       self.visible = !self.visible;
       var u = $('ui');
@@ -789,6 +832,9 @@
           ev.preventDefault();
           self.toggleHelp();
           break;
+        case 'Slash':
+          if (ev.key === '?' || ev.shiftKey) { ev.preventDefault(); self.toggleHelp(); }
+          break;
         case 'Escape':
           ev.preventDefault();
           if (self.helpOpen) self.toggleHelp(false);
@@ -818,6 +864,14 @@
     if (!st || !this.sim.fm) return;
 
     this._updateThrottleLevers();
+    // 暂停提示 + 鼠标驾驶杆准星
+    var pi = $('pause-indicator');
+    if (pi) pi.classList.toggle('hidden', !(this.sim.paused && !this.pauseOpen && !this.menuOpen));
+    var inp = this.sim.input;
+    if (inp && inp.mouseYoke) {
+      var dot = $('yoke-dot');
+      if (dot) dot.style.transform = 'translate(' + (inp.mouseStick.x * 60).toFixed(1) + 'px,' + (inp.mouseStick.y * 60).toFixed(1) + 'px)';
+    }
     this._updateFCUDisplay();
     this._updateStatusBar(st);
     this._updateObjectives(st);

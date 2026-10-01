@@ -1,5 +1,5 @@
 /* ==========================================================================
-   飞行模拟器 — 摄像机系统 (camera.js)
+   天际航线 SkyRoute — 摄像机系统 (camera.js)
      多种视角: 驾驶舱 / 副驾 / 客舱舷窗 / 机翼 / 追踪 / 塔台 / 环绕 /
                飞掠 / 起落架 / 机尾 / 自由飞行
    依赖: three.js (全局 THREE), utils.js
@@ -84,7 +84,7 @@
      --------------------------------------------------------------------- */
   CameraRig.prototype.setAircraft = function (model, dims) {
     var THREE = this.THREE;
-    this.model = model;
+    this.model = model; this._noseHidden = undefined;
     this.dims = dims || (model && model.dims);
     var d = this.dims;
     if (!model || !d) return;
@@ -239,6 +239,15 @@
     var targetPos = this._tmpV;
     var targetQuat = this._tmpQ;
     var fov = this.baseFov;
+
+    // beta 0.3: 驾驶舱视角隐藏前起落架 (真实模型没有驾驶舱地板, 否则会从风挡下方看到前轮支柱)
+    var hideNose = this.isCockpit();
+    if (this._noseHidden !== hideNose) {
+      var ng = this.model.group.getObjectByName('gearNose'), nd = this.model.group.getObjectByName('gearDoorNose');
+      if (ng) ng.visible = !hideNose;
+      if (nd) nd.visible = !hideNose;
+      this._noseHidden = hideNose;
+    }
 
     switch (this.mode) {
       case 'cockpit':

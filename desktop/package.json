@@ -1,0 +1,53 @@
+{
+  "name": "skyroute",
+  "version": "0.3.0",
+  "description": "天际航线 SkyRoute — 网页版民航客机飞行模拟器 (桌面版)",
+  "main": "main.js",
+  "author": "kevinyuzekai",
+  "homepage": "https://github.com/kevinyuzekai/Flight-Simulator",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:win": "./build-win.sh",
+    "build:msix": "./build-msix.sh"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8",
+    "resedit": "^3.1.0"
+  },
+  "build": {
+    "appId": "com.kevinyuzekai.skyroute",
+    "productName": "天际航线 SkyRoute",
+    "copyright": "© 2026 kevinyuzekai",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.js", "package.json", "build/icon.png", "app/**/*"],
+    "afterPack": "./afterPack.js",
+    "win": {
+      "executableName": "天际航线",
+      "icon": "build/icon.ico",
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "artifactName": "SkyRoute-Setup-beta_v0.3-x64.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "天际航线",
+      "uninstallDisplayName": "天际航线 SkyRoute",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "language": "2052",
+      "installerLanguages": ["zh_CN"],
+      "multiLanguageInstaller": false
+    }
+  }
+}
