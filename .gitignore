@@ -1,0 +1,4 @@
+node_modules/
+tests/last-results.json
+.DS_Store
+__pycache__/

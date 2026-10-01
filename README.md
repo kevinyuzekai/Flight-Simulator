@@ -9,8 +9,49 @@
 
 ---
 
+## beta 0.2 更新
+
+**真实 3D 机型模型**
+
+- 6 种机型改用真实 3D 模型，来源为 [amvlab/aircraft-models](https://github.com/amvlab/aircraft-models)，
+  许可证 **CC BY 4.0**，作者 amvlab（Andres Morfin Veytia）：
+  - 直接使用：**A350-900、A320neo、B737-800**
+  - 派生（在相近机型上加长机身，菜单中标注「派生」）：**A350-1000**（来自 A350）、
+    **A321neo**（来自 A320）、**B787-9**（来自 787-8 长度的 B787 模型）
+- **A330-300、B777-300ER、B737 MAX 8、C919、E190** 没有找到许可证合适的模型，
+  继续使用原来的程序化模型，没有拿其他机型冒充
+- 涂装已重绘为不带任何标志的中性白色，菜单中选择的涂装颜色会叠加到垂尾 / 腰线 / 机腹上
+- 每个模型 2.7k–5.2k 三角面、一张 1024² 贴图，以 JavaScript 形式内嵌在 `models/` 目录，
+  **仍然完全离线，可以直接双击 `index.html`（file://）打开**
+- 起落架、灯光、舱门沿用程序化部件；发动机风扇随 N1 转动；
+  真实模型上的舵面、反推和机翼弯曲暂时是静态的
+- 主菜单新增 **「致谢 / 许可」** 面板，完整说明见 [`ASSETS_LICENSES.md`](ASSETS_LICENSES.md)
+- 想换回旧模型：在地址后加 `?procedural=1`
+
+![B787-9（派生模型）](screenshots/04-B787-9-派生模型.png)
+![A320neo ILS 进近](screenshots/05-A320neo-进近.png)
+
+**修复**
+
+- 修复 v0.1 外部视角中飞机模型整体歪斜约 50° 的问题（模型坐标到机体坐标的旋转四元数写错了），
+  以及追踪视角的方向（只影响画面，飞行物理没有任何改动）
+
+**测试**
+
+- v0.1 的发布包里没有附带测试文件，beta 0.2 重新编写了测试：
+  - `node tests/run-tests.js`：物理 / 自动驾驶 / 模型数据测试，无需安装依赖
+  - `node tests/e2e.js`：无头 Chrome 端到端测试（需要 `npm i puppeteer-core`）
+- 测试发现的 **v0.1 原有问题**（本版没有修改飞行物理，因此仍然存在）：
+  - A321neo 停在地面时会向后坐尾、无法正常起飞
+  - 空客正常法则下长时间满拉杆仍会失速（迎角保护不足）
+  - 浦东 ZSPD 的跑道位置在地形里是海面，首都 ZBAA 跑道所在地形有约 3° 坡度；
+    游戏里没有跑道路面模型（只有跑道灯光）
+
+---
+
 ## 目录
 
+- [beta 0.2 更新](#beta-02-更新)
 - [快速开始](#快速开始)
 - [按键操作](#按键操作)
 - [一次完整的飞行](#一次完整的飞行)
@@ -280,8 +321,9 @@
 
 - **19,000 行 JavaScript**，纯 ES5 经典脚本，无框架、无打包器、无构建步骤
 - **three.js 已本地内置**（`vendor/three.min.js`），整个游戏可完全离线运行
-- 所有资源都是**程序化生成**的，没有一个外部素材文件：
-  - 飞机模型由几何体拼装，机身贴图（舷窗、舱门、腰线、蒙皮分块）用 Canvas 现画
+- 除 6 个真实机型模型外（见 [beta 0.2 更新](#beta-02-更新) 与 `ASSETS_LICENSES.md`），资源都是**程序化生成**的：
+  - 真实模型以 base64 内嵌在 `models/*.js` 中，用 `<script>` 加载，不需要服务器
+  - 其余机型的模型由几何体拼装，机身贴图（舷窗、舱门、腰线、蒙皮分块）用 Canvas 现画
   - 地形、云、海洋、天空都是着色器与噪声函数实时生成
   - **57 种音效全部由 Web Audio 实时合成**（发动机风扇啸叫、核心轰鸣、燃烧脉动、
     排气嘶嘶、气流噪声、GPWS 合成语音、客舱钟、失速抖动……）
@@ -299,7 +341,11 @@
 ├── index.html               主页面
 ├── README.md                本文档
 ├── 使用说明.md              简明上手指南
+├── ASSETS_LICENSES.md       第三方资源（3D 模型 / three.js）许可与修改说明
 ├── screenshots/             截图
+├── models/                  真实 3D 机型模型（CC BY 4.0，几何 + 贴图，JS 内嵌）
+├── tests/                   自动化测试（run-tests.js / e2e.js）
+├── tools/model-build/       模型转换脚本（只在重新生成模型时需要）
 ├── css/style.css            界面样式
 ├── vendor/three.min.js      本地 three.js（无需联网）
 └── js/
@@ -308,7 +354,7 @@
     ├── airports.js          77 个机场 / 462 跑道 / 416 ILS 的真实数据
     ├── flightmodel.js       六自由度飞行动力学 + 发动机 + 起落架
     ├── autopilot.js         自动驾驶（AP/FD/A-THR）+ 飞行管理（LNAV/VNAV）
-    ├── aircraft3d.js        程序化生成的 3D 飞机模型
+    ├── aircraft3d.js        3D 飞机模型（真实模型装配 + 程序化模型）
     ├── environment.js       地形 / 天空 / 海洋 / 云 / 降水 / 灯光
     ├── avionics.js          PFD / ND / ECAM / HUD 绘制
     ├── audio.js             Web Audio 实时合成音效
@@ -316,7 +362,8 @@
     ├── camera.js            12 种摄像机视角
     ├── input.js             键盘 / 鼠标 / 游戏手柄
     ├── hud.js               界面控制
-    └── main.js              主循环与系统集成
+    ├── main.js              主循环与系统集成
+    └── credits.js           「致谢 / 许可」面板
 ```
 
 ### URL 参数
@@ -338,6 +385,7 @@ index.html?aircraft=A350-900&scenario=ils-approach&dep=ZSPD&rwy=17R&weather=stor
 | `fuel` / `payload` | 0–1 |
 | `speed` | 时间倍率 |
 | `autostart` | 存在即自动开始飞行 |
+| `procedural` | `1` = 所有机型使用程序化模型（不加载真实模型） |
 | `log` | 显示调试日志面板 |
 
 ---
@@ -371,4 +419,5 @@ index.html?aircraft=A350-900&scenario=ils-approach&dep=ZSPD&rwy=17R&weather=stor
 
 ## 许可
 
-本地自用项目。three.js 为 MIT 许可，随附于 `vendor/`。
+本地自用项目，目前**没有代码许可证**（v0.1 发布包中也没有）。three.js 为 MIT 许可，随附于 `vendor/`。
+真实 3D 机型模型来自 amvlab/aircraft-models，按 CC BY 4.0 使用，详见 [`ASSETS_LICENSES.md`](ASSETS_LICENSES.md)。
