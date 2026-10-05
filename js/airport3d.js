@@ -1,8 +1,9 @@
 /* ==========================================================================
-   天际航线 SkyRoute — 立体机场 (airport3d.js, beta 0.3.2)
+   天际航线 SkyRoute — 立体机场 (airport3d.js, beta 0.4)
    --------------------------------------------------------------------------
    在跑道道面之外生成：停机坪、滑行道、航站楼、廊桥、塔台、机库等。
-   · 内置若干主要机场的真实布局（相对机场基准点的东/南偏移，单位米）
+   · beta 0.4: 全部内置机场优先使用 OSM 真实轮廓 (js/airport-osm-data.js, 构建期离线生成, ODbL)
+   · 内置若干主要机场的手工布局（相对机场基准点的东/南偏移，单位米；作为后备）
    · 其余机场：由跑道几何自动生成合理的通用布局
    · 联网时尝试 Overpass (OSM) 拉取 aeroway 补充滑行道/建筑轮廓；失败则静默回退
    · 全部为程序化几何 + Canvas 贴图，不依赖外部 GLB 运行时加载
@@ -782,10 +783,33 @@
     var elev = (airport.elevFt || 0) * 0.3048;
     var hf = heightFn(env, elev);
     var arp = FS.Geo.toWorld(airport.lat, airport.lon);
-    var layout = LAYOUTS[airport.icao] || genericLayout(airport);
-    var detailed = !!LAYOUTS[airport.icao];
+    var osmData = FS.AIRPORT_OSM && FS.AIRPORT_OSM[airport.icao];
     var towerPos = null;
     var matsUsed = [];
+    if (osmData && opts.osm !== false) {
+      /* beta 0.4: 真实轮廓 (OSM) */
+      var r = buildFromOsm(THREE, env, airport, osmData, group);
+      towerPos = r.towerPos;
+      if (!towerPos) {
+        // OSM 中没有塔台: 用手工布局或通用布局的塔台位置
+        var tl = (LAYOUTS[airport.icao] || genericLayout(airport)).towers || [];
+        if (tl[0]) {
+          var tw = { x: arp.x + tl[0].e, z: arp.z + tl[0].s };
+          towerPos = placeTower(THREE, group, tw.x, hf(tw.x, tw.z), tw.z, tl[0].h || 55);
+        }
+      }
+      group.userData.airport = airport;
+      group.userData.detailed = true;
+      group.userData.source = 'osm';
+      group.userData.osmStats = r.stats;
+      group.userData.towerPos = towerPos;
+      group.userData.dispose = function () {
+        group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+      };
+      return group;
+    }
+    var layout = LAYOUTS[airport.icao] || genericLayout(airport);
+    var detailed = !!LAYOUTS[airport.icao];
 
     function worldES(e, s) {
       return { x: arp.x + e, z: arp.z + s, y: hf(arp.x + e, arp.z + s) };
@@ -888,6 +912,7 @@
 
     group.userData.airport = airport;
     group.userData.detailed = detailed;
+    group.userData.source = detailed ? 'layout' : 'generic';
     group.userData.towerPos = towerPos;
     group.userData.dispose = function () {
       group.traverse(function (o) {
@@ -896,6 +921,268 @@
       matsUsed.forEach(function (m) { if (m && m.dispose) m.dispose(); });
     };
     return group;
+  }
+
+  /* ---------------------------------------------------------------------
+     5b. beta 0.4: 由内置 OSM 布局 (js/airport-osm-data.js) 生成真实轮廓的立体机场
+         · 航站楼 / 机库 / 场内建筑: 真实轮廓挤出 (高度取 OSM height / building:levels, 缺省按类型)
+         · 停机坪: 真实多边形 (含内洞) 三角化
+         · 滑行道: 真实中线 + 宽度, 节点处圆盘补角, 黄色中线
+         · 廊桥 / 塔台: 真实位置
+         全部按材质合并为少量网格 (每座机场约 8 个 draw call)
+     --------------------------------------------------------------------- */
+  function Acc() { this.p = []; this.n = []; this.uv = []; this.i = []; }
+  Acc.prototype.v = function (x, y, z, nx, ny, nz, u, w) {
+    this.p.push(x, y, z); this.n.push(nx, ny, nz); this.uv.push(u, w);
+    return this.p.length / 3 - 1;
+  };
+  Acc.prototype.mesh = function (THREE, material, name) {
+    if (!this.i.length) return null;
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    g.setIndex(this.p.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(this.i, 1) : new THREE.Uint16BufferAttribute(this.i, 1));
+    g.computeBoundingSphere();
+    var m = new THREE.Mesh(g, material);
+    m.name = name || '';
+    return m;
+  };
+  /** 追加一个法线朝上 (+Y) 的三角形 (自动纠正绕序) */
+  Acc.prototype.triUp = function (a, b, c) {
+    var P = this.p;
+    var ax = P[a * 3], az = P[a * 3 + 2];
+    var ny = (P[b * 3 + 2] - az) * (P[c * 3] - ax) - (P[b * 3] - ax) * (P[c * 3 + 2] - az);
+    if (ny >= 0) this.i.push(a, b, c); else this.i.push(a, c, b);
+  };
+  /** 绕 Y 旋转的长方体追加到累加器 (yaw: 局部 +X 指向世界 (cos, sin)) */
+  Acc.prototype.box = function (cx, cy, cz, sx, sy, sz, yaw) {
+    var c = Math.cos(yaw || 0), s = Math.sin(yaw || 0), self = this;
+    var hx = sx / 2, hy = sy / 2, hz = sz / 2;
+    function tr(x, z) { return [cx + x * c - z * s, cz + x * s + z * c]; }
+    var faces = [
+      [[1, 0, 0], [[hx, -hy, hz], [hx, -hy, -hz], [hx, hy, -hz], [hx, hy, hz]]],
+      [[-1, 0, 0], [[-hx, -hy, -hz], [-hx, -hy, hz], [-hx, hy, hz], [-hx, hy, -hz]]],
+      [[0, 1, 0], [[-hx, hy, hz], [hx, hy, hz], [hx, hy, -hz], [-hx, hy, -hz]]],
+      [[0, -1, 0], [[-hx, -hy, -hz], [hx, -hy, -hz], [hx, -hy, hz], [-hx, -hy, hz]]],
+      [[0, 0, 1], [[-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]]],
+      [[0, 0, -1], [[hx, -hy, -hz], [-hx, -hy, -hz], [-hx, hy, -hz], [hx, hy, -hz]]]
+    ];
+    faces.forEach(function (f) {
+      var nx = f[0][0] * c - f[0][2] * s, nz = f[0][0] * s + f[0][2] * c, base = self.p.length / 3;
+      f[1].forEach(function (q, k) {
+        var w = tr(q[0], q[2]);
+        self.v(w[0], cy + q[1], w[1], nx, f[0][1], nz, (k === 1 || k === 2) ? 1 : 0, k >= 2 ? 1 : 0);
+      });
+      self.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    });
+  };
+
+  function wallTex(THREE, kind) {
+    var key = 'wall' + kind;
+    if (_tex[key]) return _tex[key];
+    var W = 256, H = 256, c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    var g = c.getContext('2d');
+    var r, col;
+    if (kind === 1) {               // 机库: 竖向压型钢板
+      g.fillStyle = '#c3c8cd'; g.fillRect(0, 0, W, H);
+      for (var x = 0; x < W; x += 8) { g.fillStyle = (x / 8) % 2 ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.08)'; g.fillRect(x, 0, 4, H); }
+      g.fillStyle = 'rgba(40,50,60,0.25)'; g.fillRect(0, H * 0.06, W, 6);
+    } else if (kind === 0) {        // 航站楼: 大面积玻璃幕墙 + 竖梃
+      var grd = g.createLinearGradient(0, 0, 0, H);
+      grd.addColorStop(0, '#6f97b4'); grd.addColorStop(1, '#3f6580');
+      g.fillStyle = grd; g.fillRect(0, 0, W, H);
+      g.strokeStyle = 'rgba(210,220,228,0.85)'; g.lineWidth = 3;
+      for (var mx = 0; mx <= W; mx += 32) { g.beginPath(); g.moveTo(mx, 0); g.lineTo(mx, H); g.stroke(); }
+      for (var my = 0; my <= H; my += 64) { g.beginPath(); g.moveTo(0, my); g.lineTo(W, my); g.stroke(); }
+      g.fillStyle = 'rgba(255,255,255,0.10)';
+      for (r = 0; r < 4; r++) g.fillRect(0, r * 64 + 4, W, 10);
+    } else {                        // 其它: 混凝土 + 条窗
+      noiseFill(g, W, H, kind === 3 ? '#a9a59c' : '#c9c4b8', 10, 41 + kind);
+      for (r = 0; r < 4; r++) {
+        for (col = 0; col < 8; col++) {
+          var lit = ((r * 5 + col * 3) % 7) !== 0;
+          g.fillStyle = kind === 3 ? 'rgba(30,30,30,0.85)' : (lit ? 'rgba(90,120,145,0.9)' : 'rgba(45,60,75,0.9)');
+          g.fillRect(col * 32 + 4, r * 64 + 22, 24, 22);
+        }
+      }
+    }
+    var t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 4;
+    if (THREE.sRGBEncoding) t.encoding = THREE.sRGBEncoding;
+    _tex[key] = t;
+    return t;
+  }
+  function osmMat(THREE, kind) {
+    var key = 'osm_' + kind;
+    if (_mats[key]) return _mats[key];
+    var m;
+    switch (kind) {
+      case 'wall0': m = new THREE.MeshStandardMaterial({ map: wallTex(THREE, 0), roughness: 0.25, metalness: 0.55, side: THREE.DoubleSide }); break;
+      case 'wall1': m = new THREE.MeshStandardMaterial({ map: wallTex(THREE, 1), roughness: 0.55, metalness: 0.45, side: THREE.DoubleSide }); break;
+      case 'wall2': m = new THREE.MeshStandardMaterial({ map: wallTex(THREE, 2), roughness: 0.85, metalness: 0.05, side: THREE.DoubleSide }); break;
+      case 'wall3': m = new THREE.MeshStandardMaterial({ map: wallTex(THREE, 3), roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide }); break;
+      case 'roof': m = new THREE.MeshStandardMaterial({ color: 0x8d949c, roughness: 0.75, metalness: 0.2, side: THREE.DoubleSide }); break;
+      case 'apron':
+        m = new THREE.MeshStandardMaterial({ map: apronTex(THREE), color: 0xf2f2f2, roughness: 0.92, metalness: 0,
+          polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
+        break;
+      case 'taxi':
+        m = new THREE.MeshStandardMaterial({ map: taxiLineTex(THREE), color: 0xffffff, roughness: 0.9, metalness: 0,
+          polygonOffset: true, polygonOffsetFactor: -1.5, polygonOffsetUnits: -3 });
+        break;
+      case 'bridge': m = mat(THREE, 'bridge'); break;
+      default: m = mat(THREE, 'metal');
+    }
+    _mats[key] = m;
+    return m;
+  }
+  /** 滑行道: 沥青 + 15 cm 黄色中线 + 两侧边线 (u 横向 0..1, v 沿线 40 m 一周期) */
+  function taxiLineTex(THREE) {
+    if (_tex.taxiLine) return _tex.taxiLine;
+    var W = 128, H = 128, c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    var g = c.getContext('2d');
+    noiseFill(g, W, H, '#44474c', 12, 29);
+    g.fillStyle = '#d8b31c';
+    g.fillRect(W / 2 - 2, 0, 4, H);
+    g.fillRect(2, 0, 2, H); g.fillRect(W - 4, 0, 2, H);
+    var t = new THREE.CanvasTexture(c);
+    t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 8;
+    if (THREE.sRGBEncoding) t.encoding = THREE.sRGBEncoding;
+    _tex.taxiLine = t;
+    return t;
+  }
+
+  function buildFromOsm(THREE, env, airport, data, group) {
+    var elev = (airport.elevFt || 0) * 0.3048;
+    var hf = heightFn(env, elev);
+    var lat0 = airport.lat, lon0 = airport.lon;
+    function W(arr, k) { return FS.Geo.toWorld(lat0 + arr[k] * 1e-6, lon0 + arr[k + 1] * 1e-6); }
+    function ringPts(arr) { var o = []; for (var k = 0; k + 1 < arr.length; k += 2) o.push(W(arr, k)); return o; }
+    var V2 = THREE.Vector2, tri = THREE.ShapeUtils.triangulateShape;
+    var stats = { b: 0, a: 0, t: 0, j: 0 };
+
+    /* --- 停机坪 --- */
+    var apron = new Acc();
+    (data.a || []).forEach(function (A) {
+      var outer = ringPts(A[0]), holes = (A[1] || []).map(ringPts);
+      var contour = outer.map(function (q) { return new V2(q.x, q.z); });
+      var hv = holes.map(function (h) { return h.map(function (q) { return new V2(q.x, q.z); }); });
+      var faces;
+      try { faces = tri(contour, hv); } catch (e) { return; }
+      var all = outer.concat.apply(outer, holes), base = apron.p.length / 3;
+      all.forEach(function (q) { apron.v(q.x, hf(q.x, q.z) + 0.05, q.z, 0, 1, 0, q.x / 40, q.z / 40); });
+      faces.forEach(function (f) { apron.triUp(base + f[0], base + f[1], base + f[2]); });
+      stats.a++;
+    });
+
+    /* --- 滑行道 --- */
+    var taxi = new Acc();
+    (data.t || []).forEach(function (T) {
+      var hw = T[0] / 2, pts = ringPts(T[1]), vAcc = 0;
+      for (var k = 0; k + 1 < pts.length; k++) {
+        var a = pts[k], b = pts[k + 1], dx = b.x - a.x, dz = b.z - a.z, L = Math.sqrt(dx * dx + dz * dz);
+        if (L < 0.5) continue;
+        var rx = -dz / L * hw, rz = dx / L * hw, base = taxi.p.length / 3, v1 = vAcc + L / 40;
+        taxi.v(a.x - rx, hf(a.x - rx, a.z - rz) + 0.05, a.z - rz, 0, 1, 0, 0, vAcc);
+        taxi.v(a.x + rx, hf(a.x + rx, a.z + rz) + 0.05, a.z + rz, 0, 1, 0, 1, vAcc);
+        taxi.v(b.x + rx, hf(b.x + rx, b.z + rz) + 0.05, b.z + rz, 0, 1, 0, 1, v1);
+        taxi.v(b.x - rx, hf(b.x - rx, b.z - rz) + 0.05, b.z - rz, 0, 1, 0, 0, v1);
+        taxi.triUp(base, base + 1, base + 2); taxi.triUp(base, base + 2, base + 3);
+        vAcc = v1;
+        // 拐点补角圆盘 (只用沥青区 u=0.25, 不画线)
+        if (k + 2 < pts.length) {
+          var cb = taxi.p.length / 3, segN = 8;
+          taxi.v(b.x, hf(b.x, b.z) + 0.05, b.z, 0, 1, 0, 0.25, 0.5);
+          for (var s = 0; s <= segN; s++) {
+            var ang = s / segN * Math.PI * 2, px = b.x + Math.cos(ang) * hw, pz = b.z + Math.sin(ang) * hw;
+            taxi.v(px, hf(px, pz) + 0.05, pz, 0, 1, 0, 0.25, 0.5);
+            if (s) taxi.triUp(cb, cb + s, cb + s + 1);
+          }
+        }
+      }
+      stats.t++;
+    });
+
+    /* --- 建筑 --- */
+    var walls = [new Acc(), new Acc(), new Acc(), new Acc()], roof = new Acc();
+    (data.b || []).forEach(function (B) {
+      var kind = B[0], h = B[1], outer = ringPts(B[2]), holes = (B[3] || []).map(ringPts);
+      if (outer.length < 3) return;
+      var by = Infinity;
+      outer.forEach(function (q) { by = Math.min(by, hf(q.x, q.z)); });
+      by -= 0.4;
+      var top = by + h + 0.4, acc = walls[kind] || walls[2];
+      var tileW = kind === 1 ? 16 : 12, tileH = kind === 0 ? Math.max(8, h / 2) : kind === 1 ? h : 12;
+      [outer].concat(holes).forEach(function (ring) {
+        var per = 0;
+        for (var k = 0; k < ring.length; k++) {
+          var a = ring[k], b = ring[(k + 1) % ring.length], dx = b.x - a.x, dz = b.z - a.z, L = Math.sqrt(dx * dx + dz * dz);
+          if (L < 0.2) continue;
+          var nx = -dz / L, nz = dx / L, base = acc.p.length / 3, u0 = per / tileW, u1 = (per + L) / tileW;
+          acc.v(a.x, by, a.z, nx, 0, nz, u0, 0);
+          acc.v(b.x, by, b.z, nx, 0, nz, u1, 0);
+          acc.v(b.x, top, b.z, nx, 0, nz, u1, (top - by) / tileH);
+          acc.v(a.x, top, a.z, nx, 0, nz, u0, (top - by) / tileH);
+          acc.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+          per += L;
+        }
+      });
+      var faces;
+      try {
+        faces = tri(outer.map(function (q) { return new V2(q.x, q.z); }), holes.map(function (hh) { return hh.map(function (q) { return new V2(q.x, q.z); }); }));
+      } catch (e) { faces = []; }
+      var allR = outer.concat.apply(outer, holes), rb = roof.p.length / 3;
+      allR.forEach(function (q) { roof.v(q.x, top, q.z, 0, 1, 0, q.x / 20, q.z / 20); });
+      faces.forEach(function (f) { roof.triUp(rb + f[0], rb + f[1], rb + f[2]); });
+      stats.b++;
+    });
+
+    /* --- 廊桥: 旋转厅 + 伸缩通道 + 升降支腿 --- */
+    var br = new Acc(), metal = new Acc();
+    (data.j || []).forEach(function (J) {
+      var pts = ringPts(J); if (pts.length < 2) return;
+      var a = pts[0], b = pts[pts.length - 1], dx = b.x - a.x, dz = b.z - a.z, L = Math.sqrt(dx * dx + dz * dz);
+      if (L < 6) return;
+      var yaw = Math.atan2(dz, dx), gy = hf((a.x + b.x) / 2, (a.z + b.z) / 2);
+      br.box((a.x + b.x) / 2, gy + 5.2, (a.z + b.z) / 2, L, 3.0, 3.4, yaw);
+      br.box(b.x, gy + 5.2, b.z, 3.2, 3.4, 4.2, yaw);
+      metal.box(a.x + dx * 0.72, gy + 1.9, a.z + dz * 0.72, 0.5, 3.8, 0.5, yaw);
+      metal.box(a.x + dx * 0.72, gy + 0.5, a.z + dz * 0.72, 2.8, 1.0, 3.2, yaw);
+      stats.j++;
+    });
+
+    var meshes = [
+      apron.mesh(THREE, osmMat(THREE, 'apron'), 'osm:apron'),
+      taxi.mesh(THREE, osmMat(THREE, 'taxi'), 'osm:taxiway'),
+      walls[0].mesh(THREE, osmMat(THREE, 'wall0'), 'osm:terminal'),
+      walls[1].mesh(THREE, osmMat(THREE, 'wall1'), 'osm:hangar'),
+      walls[2].mesh(THREE, osmMat(THREE, 'wall2'), 'osm:building'),
+      walls[3].mesh(THREE, osmMat(THREE, 'wall3'), 'osm:parking'),
+      roof.mesh(THREE, osmMat(THREE, 'roof'), 'osm:roof'),
+      br.mesh(THREE, osmMat(THREE, 'bridge'), 'osm:jetbridge'),
+      metal.mesh(THREE, osmMat(THREE, 'metal'), 'osm:metal')
+    ];
+    meshes.forEach(function (m, idx) {
+      if (!m) return;
+      if (idx <= 1) { m.receiveShadow = true; m.renderOrder = idx === 0 ? -2 : -1; }
+      else { m.castShadow = idx >= 2 && idx <= 6; m.receiveShadow = true; }
+      group.add(m);
+    });
+
+    /* --- 塔台 --- */
+    var towerPos = null;
+    (data.c || []).forEach(function (C) {
+      var w = FS.Geo.toWorld(lat0 + C[0] * 1e-6, lon0 + C[1] * 1e-6);
+      var h = C[2] > 20 ? C[2] : (airport.size === 'large' ? 70 : 45);
+      var tp = placeTower(THREE, group, w.x, hf(w.x, w.z), w.z, h);
+      if (!towerPos) towerPos = tp;
+    });
+    return { towerPos: towerPos, stats: stats };
   }
 
   /* ---------------------------------------------------------------------
@@ -997,6 +1284,9 @@
     nearbyBuild: nearbyBuild,
     fetchOsmLayout: fetchOsmLayout,
     applyOsmExtras: applyOsmExtras,
-    hasDetailedLayout: function (icao) { return !!LAYOUTS[icao]; }
+    buildFromOsm: buildFromOsm,
+    hasOsmLayout: function (icao) { return !!(FS.AIRPORT_OSM && FS.AIRPORT_OSM[icao]); },
+    hasDetailedLayout: function (icao) { return !!LAYOUTS[icao] || !!(FS.AIRPORT_OSM && FS.AIRPORT_OSM[icao]); },
+    osmCount: function () { return FS.AIRPORT_OSM ? Object.keys(FS.AIRPORT_OSM).length : 0; }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

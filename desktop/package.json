@@ -1,6 +1,6 @@
 {
   "name": "skyroute",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "天际航线 SkyRoute — 网页版民航客机飞行模拟器 (桌面版)",
   "main": "main.js",
   "author": "kevinyuzekai",
@@ -31,7 +31,7 @@
       "signAndEditExecutable": false
     },
     "nsis": {
-      "artifactName": "SkyRoute-Setup-beta_v0.3.2-x64.${ext}",
+      "artifactName": "SkyRoute-Setup-beta_v0.4-x64.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowElevation": true,

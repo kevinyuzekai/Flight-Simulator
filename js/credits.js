@@ -1,5 +1,5 @@
 /* =========================================================================
-   credits.js —— 关于 / 致谢 / 资源许可面板 (beta 0.2, beta 0.3 增加联网地景署名)
+   credits.js —— 关于 / 致谢 / 资源许可面板 (beta 0.2, beta 0.3 增加联网地景署名, beta 0.4 增加 OSM 机场与 Sketchfab 模型署名)
    列出游戏内使用的真实 3D 模型的来源、作者与许可证。
    数据来自 models/*.js 中嵌入的 credit 字段 (FS.Aircraft3D.credits())。
    完整说明见 ASSETS_LICENSES.md。
@@ -35,7 +35,7 @@
         var cr = c.credit || {};
         var note = c.derived
           ? '派生：在源模型基础上插入机身段 (' + (c.plug ? ('前 ' + c.plug[0].toFixed(2) + ' m / 后 ' + c.plug[1].toFixed(2) + ' m') : '') + ') 以匹配本机型长度，并非该机型的独立模型'
-          : '按本机型尺寸缩放';
+          : (/sketchfab\.com/.test(cr.url || '') ? '经 Objaverse 数据集获取；去除起落架 (游戏使用程序化起落架)、网格简化、按本机型尺寸缩放、自绘舷窗 / 舱门 / 风挡' : '按本机型尺寸缩放');
         html += '<tr><td>' + esc(c.type) + '</td><td>' + link(cr.url, cr.title || c.source) + '</td><td>' + esc(cr.author) +
           '</td><td>' + link(cr.licenseUrl, cr.license) + '</td><td class="muted">' + esc(note) + '；涂装已重绘为无商标的中性白色。' + c.triangles + ' 三角面。</td></tr>';
       });
@@ -59,7 +59,11 @@
     }
     html += '<p class="muted">瓦片请求有并发与速率限制, 并利用浏览器缓存; 关闭"联网地景"或离线时自动使用内置程序化地形, 游戏完全可离线运行。</p>';
     html += '<h3>第三方代码</h3><p class="muted">three.js r149 — MIT License — ' + link('https://github.com/mrdoob/three.js') + '</p>';
-    html += '<h3>立体机场</h3><p class="muted">beta 0.3.2：航站楼 / 塔台 / 廊桥 / 停机坪 / 滑行道为程序化生成；' +'主要枢纽（浦东、首都、白云、香港、成田、樟宜、迪拜、希思罗、肯尼迪、洛杉矶等）内置真实布局。' +'开启联网地景时可能从 OpenStreetMap (ODbL) 补充滑行道，失败则回退内置布局。</p>';
+    var nOsm = (FS.Airport3D && FS.Airport3D.osmCount) ? FS.Airport3D.osmCount() : 0;
+    html += '<h3>立体机场 (beta 0.4)</h3><p class="muted">' + (nOsm ? nOsm + ' 座机场' : '内置机场') + '的航站楼轮廓、停机坪、滑行道、廊桥与塔台位置来自 ' +
+      link('https://www.openstreetmap.org/copyright', 'OpenStreetMap') + ' 数据（© OpenStreetMap contributors），按 ' +
+      link('https://opendatacommons.org/licenses/odbl/1-0/', 'ODbL 1.0') + ' 使用；内置的衍生数据库 js/airport-osm-data.js 同样以 ODbL 1.0 提供。' +
+      '建筑高度与外观为程序化估算（OSM 有层数 / 高度标签时按标签），不是真实建筑模型。没有 OSM 数据的机场使用手工布局或按跑道自动生成的通用航站区。</p>';
     html += '<h3>说明</h3><p class="muted">所有模型均以 JavaScript 形式内嵌在 models/ 目录中，无需联网，可直接用 file:// 打开。' +
       '模型的修改内容 (坐标转换、缩放、机身加长、涂装重绘等) 详见 ASSETS_LICENSES.md。' +
       '涂装菜单中的配色方案均为通用名称，不模仿任何真实航空公司，不包含标志或商标；空中交通的呼号均为虚构。</p>';

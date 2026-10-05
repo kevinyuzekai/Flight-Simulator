@@ -1035,7 +1035,7 @@
     function cp() { return sim.cockpit3d && sim.cockpit3d.active && sim.running ? sim.cockpit3d : null; }
     global.addEventListener('mousedown', function (ev) {
       var c = cp(); if (!c || ev.button !== 0 || !onScene(ev)) return;
-      if (sim.input && sim.input.mouseYoke) return;
+      // beta 0.4: 鼠标驾驶杆模式下也允许点击 FCU 按钮 / 旋钮 (点击不参与杆量, 也不会触发 AP 超控断开)
       var n = ndc(ev), hit = c.pick(n[0], n[1], sim.camera);
       if (!hit) return;
       ev.stopPropagation(); ev.preventDefault();

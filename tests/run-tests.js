@@ -192,6 +192,17 @@ Object.keys(A).forEach(function (k) {
     return m.triangles + ' tris, 长 ' + an.length.toFixed(1) + ' m, 翼展 ' + an.span.toFixed(1) + ' m' + (m.derived ? ', 派生' : '');
   });
 });
+test('beta 0.4: A330 / 737 MAX / 777 使用独立模型, 署名写入 ASSETS_LICENSES.md', function () {
+  var lic = fs.readFileSync(path.join(ROOT, 'ASSETS_LICENSES.md'), 'utf8'), out = [];
+  ['A330-300', 'B737-MAX8', 'B777-300ER'].forEach(function (k) {
+    var m = A[k]; assert(m && !m.derived && !m.hybrid, k + ' 没有独立模型');
+    assert(lic.indexOf(m.credit.url) >= 0, k + ' 的来源链接未写入 ASSETS_LICENSES.md');
+    assert(lic.indexOf(m.credit.author) >= 0, k + ' 的作者未写入 ASSETS_LICENSES.md');
+    assert(m.anchors.nacelleBottom < m.anchors.bodyBottom + 0.5, k + ' 短舱最低点异常');
+    out.push(k + ' ← ' + m.credit.author);
+  });
+  return out.join(', ');
+});
 test('index.html 引用的脚本全部存在 (离线 / file://)', function () {
   var html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   var srcs = [], re = /<script[^>]+src="([^"]+)"/g, mm;
@@ -218,6 +229,102 @@ test('cockpit3d.js: 11 种机型均有布局 (空客侧杆 / 波音驾驶盘, C9
     out.push(t + ':' + L.maker[0].toUpperCase() + ' ' + Math.round(L.du * 1000) + 'mm');
   });
   return out.join(', ');
+});
+
+/* ---------- 7. 自动驾驶手感 (beta 0.4) ---------- */
+console.log('\n[7] 自动驾驶手感 (beta 0.4: A/THR 保持 / 持续推杆断开 / 轻度超速 / 断开警告消音)');
+function cruiseSim(type) {
+  var s = makeFm(type || 'A320neo', 'ZSPD');
+  s.fm.setupForCruise(s.apt.lat, s.apt.lon, 11000, 90, 0.6);
+  var cues = []; FS.Audio.playCue = function (n) { cues.push(n); };
+  s.cues = cues;
+  s.ap.engage(1); s.ap.setRollMode('HDG'); s.ap.setTargetHdg(90); s.ap.setPitchMode('ALT'); s.ap.setTargetAlt(11000);
+  s.ap.setThrustMode('SPEED'); s.ap.setTargetSpeed(280);
+  run(s, 20);
+  return s;
+}
+test('断开 AP 时 A/THR 保持 (SPEED 模式继续调速)', function () {
+  var s = cruiseSim();
+  s.ap.disengage('人工断开');
+  assert(s.fm.ap.athr === true, 'A/THR 被一并断开');
+  s.ap.setTargetSpeed(s.fm.iasKt + 60);
+  run(s, 8, function () { s.fm.setPilotInput(0, 0, 0); });
+  var lev0 = s.fm.apCmd.athrThrottle;
+  s.ap.setTargetSpeed(s.fm.iasKt - 60);
+  run(s, 8, function () { s.fm.setPilotInput(0, 0, 0); });
+  var lev1 = s.fm.apCmd.athrThrottle;
+  assert(s.fm.ap.athr === true, 'A/THR 失效');
+  assert(lev1 < lev0 - 0.1, 'A/THR 未收油门 (' + lev0.toFixed(2) + ' → ' + lev1.toFixed(2) + ')');
+  return '油门杆 ' + lev0.toFixed(2) + ' → ' + lev1.toFixed(2) + ' → ' + s.fm.apCmd.athrThrottle.toFixed(2);
+});
+test('FLCH 的 THR CLB/IDLE 在断开 AP 后回到 SPEED', function () {
+  var s = cruiseSim(); s.fm.ap.thrustMode = 'THR IDLE';
+  s.ap.disengage('人工断开');
+  assert(s.fm.ap.athr && s.fm.ap.thrustMode === 'SPEED', '推力模式 ' + s.fm.ap.thrustMode);
+  return 'thrustMode=SPEED';
+});
+test('瞬时推杆 (0.3 s 满杆) 不断开 AP', function () {
+  var s = cruiseSim(); var k = 0;
+  run(s, 0.3, function () { s.fm.pilotOverrideMag = 1; });
+  run(s, 3, function () { s.fm.pilotOverrideMag = 0; });
+  assert(s.fm.ap.engaged, 'AP 被瞬时碰杆断开');
+  return 'AP 保持';
+});
+test('鼠标驾驶杆偏离 (overrideMag=0) 不断开 AP', function () {
+  var s = cruiseSim();
+  run(s, 10, function () { s.fm.pilotOverrideMag = 0; s.fm.setPilotInput(0.9, 0.9, 0); });
+  assert(s.fm.ap.engaged, 'AP 被鼠标杆量断开');
+  return 'AP 保持 10 s';
+});
+test('持续推杆 (>1 s 半杆) 才断开 AP', function () {
+  var s = cruiseSim(); var tOff = null;
+  run(s, 3, function (st, t) { s.fm.pilotOverrideMag = 0.7; if (!s.fm.ap.engaged && tOff === null) tOff = t; });
+  assert(tOff !== null, '持续推杆 3 s 仍未断开');
+  assert(tOff >= 0.9, '断开过快 ' + tOff.toFixed(2) + ' s');
+  assert(s.fm.ap.athr, '超控断开后 A/THR 应保持');
+  return '断开于 ' + tOff.toFixed(2) + ' s';
+});
+test('轻度超速 (VMO+10 kt) 不断开 AP, A/THR 收油门', function () {
+  var s = makeFm('A320neo', 'ZSPD'); var vmo = s.fm.ac.perf.vmo;
+  s.fm.setupForCruise(s.apt.lat, s.apt.lon, 11000, 90, 0.6);
+  s.fm.placeInAir(s.apt.lat, s.apt.lon, 11000, 90, vmo + 10, { flapPos: 0 }); s.fm.levelAttitude(90);
+  FS.Audio.playCue = function () {};
+  var ok = s.ap.engage(1);
+  assert(ok, '轻度超速时拒绝接通 AP');
+  s.ap.setRollMode('HDG'); s.ap.setTargetHdg(90); s.ap.setPitchMode('ALT'); s.ap.setTargetAlt(11000);
+  s.ap.setThrustMode('SPEED'); s.ap.setTargetSpeed(vmo - 10);
+  var maxIas = 0, sawWarn = false;
+  run(s, 20, function (st) { maxIas = Math.max(maxIas, st.iasKt); if (s.fm.warnings.overspeed) sawWarn = true; });
+  assert(s.fm.ap.engaged, 'AP 因轻度超速断开: ' + s.ap.disconnectReason + ' IAS ' + s.fm.iasKt.toFixed(0));
+  assert(s.fm.iasKt < maxIas, 'A/THR 未纠正超速');
+  return 'AP 保持; IAS 最大 ' + maxIas.toFixed(0) + ' → ' + s.fm.iasKt.toFixed(0) + ' kt (VMO ' + vmo + (sawWarn ? ', 超速警告出现' : '') + ')';
+});
+test('高速保护不再下压机头: 目标 VMO+5 巡航 120 s, AP 保持且最终回到 ±150 ft', function () {
+  var s = cruiseSim('A320neo'); var vmo = s.fm.ac.perf.vmo;
+  s.ap.setTargetSpeed(vmo + 5);
+  var maxDev = 0, maxIas = 0;
+  run(s, 120, function (st) { maxDev = Math.max(maxDev, Math.abs(st.altFt - 11000)); maxIas = Math.max(maxIas, st.iasKt); });
+  assert(s.fm.ap.engaged, 'AP 断开: ' + s.ap.disconnectReason);
+  var endDev = Math.abs(s.fm.altFt - 11000);
+  assert(endDev < 150, '120 s 后高度偏差 ' + endDev.toFixed(0) + ' ft');
+  assert(maxIas < vmo + 8, 'IAS 最大 ' + maxIas.toFixed(0));
+  return '终了高度偏差 ' + endDev.toFixed(0) + ' ft (过程最大 ' + maxDev.toFixed(0) + ')' + ', 最大 IAS ' + maxIas.toFixed(0) + ' kt (VMO ' + vmo + ', 目标被限幅到 VMO-6)';
+});
+test('断开警告音持续, 再次按键消音; 第三次按键重新接通', function () {
+  var s = cruiseSim();
+  var r1 = s.ap.toggle();
+  assert(r1 === 'disengaged' && s.ap.discWarning, '断开后警告未开始');
+  assert(s.cues.indexOf('ap_disconnect_loop') >= 0, '未播放循环警告');
+  run(s, 5);
+  assert(s.ap.discWarning, '警告 5 s 后自行停止');
+  var r2 = s.ap.toggle();
+  assert(r2 === 'silenced' && !s.ap.discWarning && !s.fm.ap.engaged, '第二次按键应仅消音');
+  assert(s.cues.indexOf('ap_disconnect_stop') >= 0, '未停止循环警告');
+  var r3 = s.ap.toggle();
+  assert(r3 === 'engaged' && s.fm.ap.engaged, '第三次按键应重新接通');
+  // 侧杆按钮
+  assert(s.ap.instinctiveDisconnect() === 'disengaged' && s.ap.instinctiveDisconnect() === 'silenced', '侧杆按钮流程异常');
+  return 'T: 断开 → 消音 → 接通; 侧杆按钮: 断开 → 消音';
 });
 
 var pass = results.filter(function (r) { return r.ok; }).length;

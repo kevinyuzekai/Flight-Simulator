@@ -339,15 +339,28 @@
     this.athrActive = false;
     this._prevGs = 0;
     this._flareStartAlt = null;
+    this._ovrTimer = 0;        // beta 0.4: 持续推杆计时
+    this.discWarning = false;  // beta 0.4: 断开警告音是否在响
   }
+  Autopilot.prototype.OVERRIDE_HOLD_S = 1.0;
 
   /* ---------------- 模式控制 ---------------- */
+  /* beta 0.4: 只有失速或「严重」超速才拒绝接通 / 自动断开; 轻度超速 (VMO/MMO 附近) 保持 AP,
+     由自动推力收油门、速度目标限幅来纠正 */
+  Autopilot.prototype._severeOverspeed = function () {
+    var fm = this.fm, perf = fm.ac.perf || {};
+    var vmo = perf.vmo || 340, mmo = perf.mmo || 0.86;
+    return fm.iasKt > vmo + 20 || (isFinite(fm.mach) && fm.mach > mmo + 0.035);
+  };
+
   Autopilot.prototype.engage = function (which) {
     var ap = this.ap;
-    if (this.fm.warnings.stall || this.fm.warnings.overspeed) {
-      this.disengage('保护限制');
+    if (this.fm.warnings.stall || this._severeOverspeed()) {
+      FS.Bus.emit('ap:engageRefused', { reason: this.fm.warnings.stall ? '失速' : '严重超速' });
       return false;
     }
+    this.silenceDisconnectWarning();
+    this._ovrTimer = 0;
     ap.engaged = true;
     if (which === 2) ap.ap2 = true; else ap.ap1 = true;
     if (!ap.pitchMode) ap.pitchMode = 'ALT';
@@ -361,22 +374,57 @@
     return true;
   };
 
+  /**
+   * 断开自动驾驶 (beta 0.4):
+   *  · A/THR 保持接通 (与真机一致: AP 与 A/THR 相互独立);
+   *    依赖垂直模式的推力模式 (THR CLB / THR IDLE / RETARD) 回到 SPEED / MACH
+   *  · 断开警告音持续循环, 直到再次按下断开键 (T / 侧杆按钮 / FCU 断开钮) 或重新接通 AP 才消音
+   */
   Autopilot.prototype.disengage = function (reason) {
-    var ap = this.ap;
+    var ap = this.ap, fm = this.fm;
     if (!ap.engaged) return;
     ap.engaged = false;
     ap.ap1 = ap.ap2 = false;
-    ap.athr = false;
     ap.mode = 'OFF';
+    if (ap.athr) {
+      var tm = ap.thrustMode;
+      if (tm !== 'SPEED' && tm !== 'MACH' && tm !== 'TOGA') {
+        ap.thrustMode = ap.targetMach ? 'MACH' : 'SPEED';
+      }
+      if (ap.thrustMode === 'SPEED' && !ap.targetIas) ap.targetIas = Math.round(fm.iasKt);
+      if (ap.thrustMode === 'MACH' && !ap.targetMach) ap.targetMach = Math.round(fm.mach * 100) / 100;
+    }
+    if (this.landMode === 'FLARE' || this.landMode === 'ROLLOUT') { /* 接地后保持收油门 */ }
     this.disconnectReason = reason || '人工断开';
     this.rollPID.reset(); this.altPID.reset(); this.vsPID.reset(); this.pitchPID.reset();
     this.pitchInt = 0;
-    FS.Bus.emit('ap:disengaged', { reason: this.disconnectReason });
-    FS.Audio.playCue('ap_disconnect');
+    this._ovrTimer = 0;
+    this.discWarning = true;
+    FS.Bus.emit('ap:disengaged', { reason: this.disconnectReason, athr: !!ap.athr });
+    FS.Audio.playCue('ap_disconnect_loop');
   };
 
+  /** 断开警告消音 */
+  Autopilot.prototype.silenceDisconnectWarning = function () {
+    if (!this.discWarning) return false;
+    this.discWarning = false;
+    FS.Audio.playCue('ap_disconnect_stop');
+    FS.Bus.emit('ap:discWarningSilenced', {});
+    return true;
+  };
+
+  /** 本能断开按钮 / 断开键: 接通时断开; 已断开且警告在响时消音 */
+  Autopilot.prototype.instinctiveDisconnect = function (reason) {
+    if (this.ap.engaged) { this.disengage(reason || '人工断开'); return 'disengaged'; }
+    if (this.silenceDisconnectWarning()) return 'silenced';
+    return 'none';
+  };
+
+  /** T 键 / AP 按钮: 接通 ↔ 断开; 断开警告在响时先消音 */
   Autopilot.prototype.toggle = function () {
-    if (this.ap.engaged) this.disengage('人工断开'); else this.engage(1);
+    if (this.ap.engaged) { this.disengage('人工断开'); return 'disengaged'; }
+    if (this.silenceDisconnectWarning()) return 'silenced';
+    return this.engage(1) ? 'engaged' : 'refused';
   };
 
   Autopilot.prototype.setTargetAlt = function (ft) {
@@ -464,10 +512,17 @@
     this.updateFMS(dt);
     this._checkProtections(dt);
 
-    // 手动操纵杆会断开自动驾驶 (优先级高于 AP)
-    if (fm.pilotOverride) {
-      if (ap.engaged) this.disengage('人工超控');
-    }
+    // 手动操纵杆超控 (beta 0.4): 必须「持续」推杆才断开 AP, 瞬时碰杆 / 鼠标调参不算。
+    //  fm.pilotOverrideMag = 摇杆/手柄/键盘/触摸的杆量 0..1 (不含鼠标驾驶杆, 由 main.js 提供)
+    //  杆量 > 0.5 计时, > 0.9 计时加倍; 累计 ≥ 1.0 s 才断开 (满杆约 0.5 s), 松杆后计时快速回落
+    var mag = fm.pilotOverrideMag;
+    if (mag === undefined) mag = fm.pilotOverride ? 1 : 0;
+    if (ap.engaged) {
+      var rate = mag > 0.9 ? 2 : (mag > 0.5 ? 1 : 0);
+      if (rate) this._ovrTimer = (this._ovrTimer || 0) + rate * dt;
+      else this._ovrTimer = Math.max(0, (this._ovrTimer || 0) - 2 * dt);
+      if (this._ovrTimer >= this.OVERRIDE_HOLD_S) this.disengage('人工超控 (持续推杆)');
+    } else this._ovrTimer = 0;
 
     var cmd = fm.apCmd;
     cmd.active = ap.engaged;
@@ -477,7 +532,12 @@
       // 未接通时仅提供 FD 指引和偏航阻尼
       this._updateFlightDirector(dt);
       cmd.elevator = 0; cmd.aileron = 0; cmd.rudder = this._yawDamper();
-      if (ap.athr && ap.thrustMode === 'SPEED') this._autoThrottle(dt);
+      // beta 0.4: AP 断开后 A/THR 继续工作 (SPEED / MACH / TOGA)
+      if (ap.athr) {
+        var tm = ap.thrustMode;
+        if (tm !== 'SPEED' && tm !== 'MACH' && tm !== 'TOGA') ap.thrustMode = ap.targetMach ? 'MACH' : 'SPEED';
+        this._autoThrottle(dt);
+      }
       return;
     }
 
@@ -505,11 +565,13 @@
     if (!ap.engaged) { this._protTimer = 0; return; }
     // 只有在接通 3 秒之后, 且告警持续 1.5 秒以上才自动断开,
     // 避免瞬时迎角尖峰 (例如接地弹跳或大气扰动) 误触发断开
-    var active = fm.warnings.stall || (fm.iasKt > fm.ac.perf.vmo + 8);
-    if (active) this._protTimer = (this._protTimer || 0) + dt;
+    // beta 0.4: 轻度超速 (≤ VMO+20 kt / MMO+0.035) 不再断开 AP; 严重超速需持续 3 s
+    var stall = !!fm.warnings.stall, severe = this._severeOverspeed();
+    if (stall || severe) this._protTimer = (this._protTimer || 0) + dt;
     else this._protTimer = 0;
-    if (this._protTimer > 1.5 && (fm.time - this.apEngageTime) > 3) {
-      this.disengage(fm.warnings.stall ? '失速保护' : '超速保护');
+    var need = stall ? 1.5 : 3.0;
+    if (this._protTimer > need && (fm.time - this.apEngageTime) > 3) {
+      this.disengage(stall ? '失速保护' : '严重超速保护');
       this._protTimer = 0;
     }
   };
@@ -787,6 +849,19 @@
       }
     }
 
+    /* ---- 高速保护 (beta 0.4 修正) ----
+       旧版在接近 VMO/MMO 时把俯仰「下压」到 -4°, 反而继续加速, 轻度超速很快演变成
+       严重超速并断开 AP。改为与真机一致: 接近 VMO/MMO (余量 < 10 kt) 时不再允许下降,
+       超过后给一个温和的上仰航迹角 (+0.5° ~ +3°) 卸掉速度, 同时自动推力收油门。   */
+    var vmoMargin = fm.ac.perf.vmo - fm.iasKt;
+    var mmoMargin = (fm.ac.perf.mmo - fm.mach) * 600;
+    var margin = Math.min(vmoMargin, mmoMargin);
+    if (margin < 10 && mode !== 'GS' && this.landMode !== 'FLARE' && !fm.onGround) {
+      var gFloor = margin >= 0 ? U.lerp(0, Math.min(0, gammaCmdDeg), margin / 10) : U.lerp(0.5, 3.0, U.clamp01(-margin / 15));
+      if (gammaCmdDeg < gFloor) gammaCmdDeg = gFloor;
+      ap.highSpeedProt = margin < 0;
+    } else ap.highSpeedProt = false;
+
     var pitchTarget = gammaCmdDeg + fm.alphaDeg;
     // 姿态限制 (民航客机正常法则的俯仰限制)
     pitchTarget = U.clamp(pitchTarget, -12, 22);
@@ -799,13 +874,6 @@
     ap.lastPitchCmd = pitchTarget;
     ap.lastGamma = gammaCmdDeg;
 
-    // 高速保护: 接近 VMO/MMO 时俯仰下压
-    var vmoMargin = fm.ac.perf.vmo - fm.iasKt;
-    var mmoMargin = (fm.ac.perf.mmo - fm.mach) * 600;
-    var margin = Math.min(vmoMargin, mmoMargin);
-    if (margin < 15) {
-      pitchTarget = Math.min(pitchTarget, U.lerp(-4, pitchTarget, U.clamp01(margin / 15 + 0.05)));
-    }
     return pitchTarget;
   };
 
@@ -879,12 +947,15 @@
     var mode = ap.thrustMode || 'SPEED';
     var target = 0;
 
+    var perf = fm.ac.perf || {};
+    var vLim = (perf.vmo || 340) - 6, mLim = (perf.mmo || 0.86) - 0.01;
     switch (mode) {
       case 'SPEED':
-        target = this._throttleFromSpeed(dt, ap.targetIas || fm.iasKt);
+        // 速度目标不超过 VMO-6 kt (高速保护: 轻度超速时自动收油门)
+        target = this._throttleFromSpeed(dt, Math.min(ap.targetIas || fm.iasKt, vLim));
         break;
       case 'MACH':
-        target = this._throttleFromMach(dt, ap.targetMach || fm.mach);
+        target = this._throttleFromMach(dt, Math.min(ap.targetMach || fm.mach, mLim));
         break;
       case 'THR CLB':
         target = 0.92 * (this._n1ToLever(fm, 92));

@@ -155,6 +155,7 @@
     };
     this.mouseMode = 'none';        // 'none' | 'stick' | 'look'
     this.mouseStick = { x: 0, y: 0 };
+    this.overrideMag = 0;          // beta 0.4: 可判定 AP 超控的杆量 (不含鼠标)
 
     /* --- 手柄 --- */
     this.gamepadIndex = null;
@@ -215,6 +216,7 @@
       self.mouse.dy = ev.movementY || 0;
       self.mouse.x = ev.clientX;
       self.mouse.y = ev.clientY;
+      self.mouse.overScene = onScene(ev);
     };
     function onScene(ev) {
       var id = ev.target && ev.target.id;
@@ -434,10 +436,13 @@
     // 鼠标驾驶杆: 光标相对屏幕中心 (屏幕 80% 范围 = 满偏), 小死区
     var myX = 0, myY = 0;
     if (this.mouseYoke) {
-      var W = global.innerWidth || 1, H = global.innerHeight || 1;
-      myX = U.deadzone(U.clamp((this.mouse.x - W / 2) / (W * 0.4), -1, 1), this.yokeDeadzone);
-      myY = U.deadzone(U.clamp((this.mouse.y - H / 2) / (H * 0.4), -1, 1), this.yokeDeadzone);
-      this.mouseStick.x = myX; this.mouseStick.y = myY;
+      // beta 0.4: 光标移到界面面板 / 按钮上 (不在三维画面上) 时冻结杆量, 不跟随光标
+      if (this.mouse.overScene !== false) {
+        var W = global.innerWidth || 1, H = global.innerHeight || 1;
+        this.mouseStick.x = U.deadzone(U.clamp((this.mouse.x - W / 2) / (W * 0.4), -1, 1), this.yokeDeadzone);
+        this.mouseStick.y = U.deadzone(U.clamp((this.mouse.y - H / 2) / (H * 0.4), -1, 1), this.yokeDeadzone);
+      }
+      myX = this.mouseStick.x; myY = this.mouseStick.y;
     }
     var T = this.touch;
 
@@ -464,6 +469,12 @@
       else if (this.mouseYoke) rIn = myX;
     }
     a.roll = U.clamp(rIn, -1, 1);
+
+    /* beta 0.4: 可判定为「人工超控 AP」的杆量 —— 只算键盘 / 摇杆 / 手柄 / 触摸,
+       鼠标驾驶杆 (光标去点 FCU、调旋钮时必然偏离屏幕中心) 一律不算 */
+    var ovP = (keyP || useJoy || useGamepad || T.active) ? Math.abs(pIn) : 0;
+    var ovR = (keyR || useJoy || useGamepad || T.active) ? Math.abs(rIn) : 0;
+    this.overrideMag = Math.min(1, Math.max(ovP, ovR));
 
     /* ---- 方向舵 ---- */
     var yIn = 0, keyY = false;

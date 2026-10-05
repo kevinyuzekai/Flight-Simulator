@@ -1,0 +1,1159 @@
+{
+ "A350-900": {
+  "zN": -32.4,
+  "zT": 34.4,
+  "R": 2.96,
+  "groundY": -5.381292052591301,
+  "engY": -3.2062920525913015,
+  "engR": 1.575,
+  "mainAxleY": -4.251292052591301,
+  "noseAxleY": -4.761292052591301,
+  "ryScale": 1.03,
+  "flatBottom": 1,
+  "halfSkin": 31.615,
+  "finBase": 3.001787931034483,
+  "bbox": [
+   [
+    -32.95500000298023,
+    -5.381292057359673,
+    -32.400001525878906
+   ],
+   [
+    32.95500000298023,
+    13.60178831250421,
+    34.46258330196142
+   ]
+  ],
+  "dims": {
+   "length": 66.8,
+   "wingspan": 64.75,
+   "height": 17.05,
+   "wingArea": 442,
+   "wingSweep": 31.9,
+   "wingDihedral": 5,
+   "wingRootChord": 13.2,
+   "wingTipChord": 2.4,
+   "wingPos": {
+    "x": 0,
+    "y": -1.25,
+    "z": 1.6
+   },
+   "wingletHeight": 1.9,
+   "wingletCant": 35,
+   "tailSpan": 19.4,
+   "tailArea": 78,
+   "tailPos": {
+    "x": 0,
+    "y": 1.6,
+    "z": 24.5
+   },
+   "tailSweep": 36,
+   "finHeight": 10.6,
+   "finArea": 56,
+   "finPos": {
+    "x": 0,
+    "y": 4.6,
+    "z": 25.8
+   },
+   "finSweep": 40,
+   "fuselageRadius": 2.96,
+   "fuselageWidthTop": 5.96,
+   "noseLength": 9.2,
+   "tailConeLength": 14.5,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 16.6,
+    "y": -4.3814,
+    "z": 5.6
+   },
+   "engineNacelleLen": 7.4,
+   "engineNacelleDia": 3.15,
+   "pylonLen": 3.6,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -21.5,
+     "y": -3.05,
+     "strutLen": 2.9064000000000005,
+     "wheelR": 0.62,
+     "wheelW": 0.42,
+     "wheels": 2,
+     "track": 1.1
+    },
+    "main": {
+     "x": 5.65,
+     "z": 2.6,
+     "y": -3.25,
+     "strutLen": 2.1964000000000006,
+     "wheelR": 1.13,
+     "wheelW": 0.42,
+     "wheels": 4,
+     "bogie": true,
+     "track": 11.3
+    }
+   },
+   "doorPositions": [
+    -20.5,
+    -12,
+    8.5,
+    17.5
+   ],
+   "windowRows": 46,
+   "refHeight": 6.5764000000000005,
+   "thrustArmZ": 1.7525600000000001,
+   "wingTipHeight": 2.0939545183482102,
+   "tailStrikeAngle": 10.325040125349568
+  }
+ },
+ "A350-1000": {
+  "zN": -35.895,
+  "zT": 37.895,
+  "R": 2.96,
+  "groundY": -5.491980559324013,
+  "engY": -3.2669805593240135,
+  "engR": 1.625,
+  "mainAxleY": -4.331980559324013,
+  "noseAxleY": -4.871980559324013,
+  "ryScale": 1.03,
+  "flatBottom": 1,
+  "halfSkin": 31.615,
+  "finBase": 2.9849669708333333,
+  "bbox": [
+   [
+    -32.95500000298023,
+    -5.491980564092384,
+    -35.89500045776367
+   ],
+   [
+    32.95500000298023,
+    13.58496735230306,
+    37.95758330196143
+   ]
+  ],
+  "dims": {
+   "length": 73.79,
+   "wingspan": 64.75,
+   "height": 17.08,
+   "wingArea": 460,
+   "wingSweep": 31.9,
+   "wingDihedral": 5,
+   "wingRootChord": 13.8,
+   "wingTipChord": 2.4,
+   "wingPos": {
+    "x": 0,
+    "y": -1.25,
+    "z": 0.2
+   },
+   "wingletHeight": 1.9,
+   "wingletCant": 35,
+   "tailSpan": 19.4,
+   "tailArea": 80,
+   "tailPos": {
+    "x": 0,
+    "y": 1.6,
+    "z": 27
+   },
+   "tailSweep": 36,
+   "finHeight": 10.6,
+   "finArea": 57,
+   "finPos": {
+    "x": 0,
+    "y": 4.6,
+    "z": 28.3
+   },
+   "finSweep": 40,
+   "fuselageRadius": 2.96,
+   "noseLength": 9.2,
+   "tailConeLength": 15,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 16.6,
+    "y": -4.361400000000001,
+    "z": 4.2
+   },
+   "engineNacelleLen": 7.6,
+   "engineNacelleDia": 3.25,
+   "pylonLen": 3.6,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -24,
+     "y": -3.05,
+     "strutLen": 2.936400000000001,
+     "wheelR": 0.62,
+     "wheelW": 0.42,
+     "wheels": 2,
+     "track": 1.1
+    },
+    "main": {
+     "x": 5.65,
+     "z": 3.2,
+     "y": -3.25,
+     "strutLen": 2.1964000000000006,
+     "wheelR": 1.16,
+     "wheelW": 0.44,
+     "wheels": 6,
+     "bogie": true,
+     "track": 11.3
+    }
+   },
+   "doorPositions": [
+    -23,
+    -13,
+    10,
+    20
+   ],
+   "windowRows": 51,
+   "refHeight": 6.606400000000001,
+   "thrustArmZ": 1.7445600000000003,
+   "wingTipHeight": 2.1239545183482105,
+   "tailStrikeAngle": 9.415559725421831
+  }
+ },
+ "A320neo": {
+  "zN": -17.785,
+  "zT": 19.785,
+  "R": 1.98,
+  "groundY": -4.048789604788014,
+  "engY": -2.5237896047880137,
+  "engR": 1.075,
+  "mainAxleY": -3.4837896047880137,
+  "noseAxleY": -3.6487896047880137,
+  "ryScale": 1.05,
+  "flatBottom": 0.965,
+  "halfSkin": 16.939999999999998,
+  "finBase": 1.918216197916667,
+  "bbox": [
+   [
+    -18.58000000298023,
+    -4.048789610748479,
+    -17.78499984741211
+   ],
+   [
+    18.58000000298023,
+    7.918216228485107,
+    19.84758330196142
+   ]
+  ],
+  "dims": {
+   "length": 37.57,
+   "wingspan": 35.8,
+   "height": 11.76,
+   "wingArea": 122.6,
+   "wingSweep": 25,
+   "wingDihedral": 5,
+   "wingRootChord": 7.1,
+   "wingTipChord": 1.3,
+   "wingPos": {
+    "x": 0,
+    "y": -1.05,
+    "z": 0.4
+   },
+   "wingletHeight": 2.4,
+   "wingletCant": 20,
+   "tailSpan": 12.4,
+   "tailArea": 31,
+   "tailPos": {
+    "x": 0,
+    "y": 1.1,
+    "z": 13.6
+   },
+   "tailSweep": 30,
+   "finHeight": 6,
+   "finArea": 21.5,
+   "finPos": {
+    "x": 0,
+    "y": 2.7,
+    "z": 14.6
+   },
+   "finSweep": 35,
+   "fuselageRadius": 1.98,
+   "noseLength": 5.6,
+   "tailConeLength": 8.4,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 5.75,
+    "y": -2.5131999999999994,
+    "z": 3.6
+   },
+   "engineNacelleLen": 4.4,
+   "engineNacelleDia": 2.15,
+   "pylonLen": 2.2,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -12.6,
+     "y": -2.05,
+     "strutLen": 1.7582,
+     "wheelR": 0.4,
+     "wheelW": 0.25,
+     "wheels": 2,
+     "track": 0.78
+    },
+    "main": {
+     "x": 3.8,
+     "z": 1.4,
+     "y": -2.25,
+     "strutLen": 1.3931999999999998,
+     "wheelR": 0.565,
+     "wheelW": 0.28,
+     "wheels": 2,
+     "bogie": false,
+     "track": 7.59
+    }
+   },
+   "doorPositions": [
+    -11.5,
+    -6.5,
+    5,
+    11
+   ],
+   "windowRows": 26,
+   "refHeight": 4.2082,
+   "thrustArmZ": 1.0052799999999997,
+   "wingTipHeight": 1.1921529228859602,
+   "tailStrikeAngle": 10.417298606919951
+  }
+ },
+ "A321neo": {
+  "zN": -21.255,
+  "zT": 23.255,
+  "R": 1.98,
+  "groundY": -4.078789604788015,
+  "engY": -2.5387896047880143,
+  "engR": 1.09,
+  "mainAxleY": -3.513789604788015,
+  "noseAxleY": -3.678789604788015,
+  "ryScale": 1.05,
+  "flatBottom": 0.965,
+  "halfSkin": 16.939999999999998,
+  "finBase": 1.9156436979166667,
+  "bbox": [
+   [
+    -18.58000000298023,
+    -4.07878961074848,
+    -21.2549991607666
+   ],
+   [
+    18.58000000298023,
+    7.915643697916667,
+    23.31758330196142
+   ]
+  ],
+  "dims": {
+   "length": 44.51,
+   "wingspan": 35.8,
+   "height": 11.76,
+   "wingArea": 128,
+   "wingSweep": 25,
+   "wingDihedral": 5,
+   "wingRootChord": 7.1,
+   "wingTipChord": 1.3,
+   "wingPos": {
+    "x": 0,
+    "y": -1.05,
+    "z": -2.6
+   },
+   "wingletHeight": 2.4,
+   "wingletCant": 20,
+   "tailSpan": 12.4,
+   "tailArea": 32,
+   "tailPos": {
+    "x": 0,
+    "y": 1.1,
+    "z": 17
+   },
+   "tailSweep": 30,
+   "finHeight": 6,
+   "finArea": 22,
+   "finPos": {
+    "x": 0,
+    "y": 2.7,
+    "z": 18
+   },
+   "finSweep": 35,
+   "fuselageRadius": 1.98,
+   "noseLength": 5.6,
+   "tailConeLength": 8.4,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 5.75,
+    "y": -2.4981999999999998,
+    "z": 1
+   },
+   "engineNacelleLen": 4.6,
+   "engineNacelleDia": 2.18,
+   "pylonLen": 2.2,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -15.6,
+     "y": -2.05,
+     "strutLen": 1.7582,
+     "wheelR": 0.4,
+     "wheelW": 0.25,
+     "wheels": 2,
+     "track": 0.78
+    },
+    "main": {
+     "x": 3.8,
+     "z": -1.2,
+     "y": -2.25,
+     "strutLen": 1.3931999999999998,
+     "wheelR": 0.565,
+     "wheelW": 0.28,
+     "wheels": 4,
+     "bogie": true,
+     "track": 7.59
+    }
+   },
+   "doorPositions": [
+    -14.5,
+    -8,
+    7,
+    14.5
+   ],
+   "windowRows": 33,
+   "refHeight": 4.2082,
+   "thrustArmZ": 0.99928,
+   "wingTipHeight": 1.1921529228859602,
+   "tailStrikeAngle": 8.820865972771383
+  }
+ },
+ "A330-300": {
+  "zN": -30.845,
+  "zT": 32.845,
+  "R": 2.82,
+  "groundY": -4.842309178567713,
+  "engY": -2.917309178567713,
+  "engR": 1.325,
+  "mainAxleY": -3.7723091785677125,
+  "noseAxleY": -4.262309178567713,
+  "ryScale": 1.03,
+  "flatBottom": 1,
+  "halfSkin": 29.189999999999998,
+  "finBase": 2.8167949675925925,
+  "bbox": [
+   [
+    -30.83000000298023,
+    -4.8423092310198,
+    -30.844999313354492
+   ],
+   [
+    30.83000000298023,
+    12.816795349121094,
+    32.907583301961424
+   ]
+  ],
+  "dims": {
+   "length": 63.69,
+   "wingspan": 60.3,
+   "height": 16.83,
+   "wingArea": 361.6,
+   "wingSweep": 30,
+   "wingDihedral": 5,
+   "wingRootChord": 11,
+   "wingTipChord": 2,
+   "wingPos": {
+    "x": 0,
+    "y": -1.2,
+    "z": 0.6
+   },
+   "wingletHeight": 2.4,
+   "wingletCant": 25,
+   "tailSpan": 19,
+   "tailArea": 70,
+   "tailPos": {
+    "x": 0,
+    "y": 1.6,
+    "z": 23
+   },
+   "tailSweep": 34,
+   "finHeight": 10,
+   "finArea": 52,
+   "finPos": {
+    "x": 0,
+    "y": 4.4,
+    "z": 24.2
+   },
+   "finSweep": 38,
+   "fuselageRadius": 2.82,
+   "noseLength": 8.6,
+   "tailConeLength": 13.5,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 14.6,
+    "y": -4.3138,
+    "z": 5
+   },
+   "engineNacelleLen": 6.4,
+   "engineNacelleDia": 2.65,
+   "pylonLen": 3.2,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -20,
+     "y": -2.9,
+     "strutLen": 2.7788,
+     "wheelR": 0.58,
+     "wheelW": 0.4,
+     "wheels": 2,
+     "track": 1.05
+    },
+    "main": {
+     "x": 5.35,
+     "z": 2.2,
+     "y": -3.1,
+     "strutLen": 2.0888,
+     "wheelR": 1.07,
+     "wheelW": 0.4,
+     "wheels": 4,
+     "bogie": true,
+     "track": 10.7
+    }
+   },
+   "doorPositions": [
+    -19,
+    -11,
+    8,
+    16.5
+   ],
+   "windowRows": 44,
+   "refHeight": 6.2588,
+   "thrustArmZ": 1.72552,
+   "wingTipHeight": 2.021016794693391,
+   "tailStrikeAngle": 10.203799447321694
+  }
+ },
+ "B737-800": {
+  "zN": -18.735,
+  "zT": 20.735,
+  "R": 1.88,
+  "groundY": -3.773846531691742,
+  "engY": -2.448846531691742,
+  "engR": 0.875,
+  "mainAxleY": -3.208846531691742,
+  "noseAxleY": -3.393846531691742,
+  "ryScale": 1.05,
+  "flatBottom": 0.9,
+  "halfSkin": 16.935,
+  "finBase": 1.7908961924342106,
+  "bbox": [
+   [
+    -18.575000002980232,
+    -3.7738465293075563,
+    -18.735000610351562
+   ],
+   [
+    18.575000002980232,
+    8.950896263122559,
+    20.79758330196142
+   ]
+  ],
+  "dims": {
+   "length": 39.47,
+   "wingspan": 35.79,
+   "height": 12.55,
+   "wingArea": 124.6,
+   "wingSweep": 25,
+   "wingDihedral": 6,
+   "wingRootChord": 7.3,
+   "wingTipChord": 1.6,
+   "wingPos": {
+    "x": 0,
+    "y": -1.15,
+    "z": -0.4
+   },
+   "wingletHeight": 2.4,
+   "wingletCant": 15,
+   "tailSpan": 14.35,
+   "tailArea": 32.8,
+   "tailPos": {
+    "x": 0,
+    "y": 1.2,
+    "z": 14.8
+   },
+   "tailSweep": 30,
+   "finHeight": 7.16,
+   "finArea": 26.4,
+   "finPos": {
+    "x": 0,
+    "y": 3,
+    "z": 15.8
+   },
+   "finSweep": 35,
+   "fuselageRadius": 1.88,
+   "noseLength": 5.2,
+   "tailConeLength": 7.6,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 5.25,
+    "y": -2.5292000000000003,
+    "z": 2.9
+   },
+   "engineNacelleLen": 4,
+   "engineNacelleDia": 1.75,
+   "pylonLen": 2,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -13,
+     "y": -1.95,
+     "strutLen": 1.6942000000000004,
+     "wheelR": 0.38,
+     "wheelW": 0.24,
+     "wheels": 2,
+     "track": 0.75
+    },
+    "main": {
+     "x": 2.86,
+     "z": 0.9,
+     "y": -2.1,
+     "strutLen": 1.3592000000000004,
+     "wheelR": 0.565,
+     "wheelW": 0.28,
+     "wheels": 2,
+     "bogie": false,
+     "track": 5.72
+    }
+   },
+   "doorPositions": [
+    -11.9,
+    -6,
+    5.5,
+    12
+   ],
+   "windowRows": 32,
+   "refHeight": 4.0242,
+   "thrustArmZ": 1.0116800000000001,
+   "wingTipHeight": 0.5933597099207203,
+   "tailStrikeAngle": 9.349136539988294
+  }
+ },
+ "B737-MAX8": {
+  "zN": -18.76,
+  "zT": 20.76,
+  "R": 1.88,
+  "groundY": -4.069266022479503,
+  "engY": -2.5942660224795038,
+  "engR": 1.025,
+  "mainAxleY": -3.5042660224795035,
+  "noseAxleY": -3.6892660224795035,
+  "ryScale": 1.05,
+  "flatBottom": 0.9,
+  "halfSkin": 16.92,
+  "finBase": 1.7937127631578946,
+  "bbox": [
+   [
+    -18.680000002980233,
+    -4.069266020095318,
+    -18.760000228881836
+   ],
+   [
+    18.680000002980233,
+    8.953712610570005,
+    20.822583301961423
+   ]
+  ],
+  "dims": {
+   "length": 39.52,
+   "wingspan": 35.92,
+   "height": 12.3,
+   "wingArea": 127,
+   "wingSweep": 25,
+   "wingDihedral": 6,
+   "wingRootChord": 7.3,
+   "wingTipChord": 1.6,
+   "wingPos": {
+    "x": 0,
+    "y": -1.15,
+    "z": -0.4
+   },
+   "wingletHeight": 2.6,
+   "wingletCant": 12,
+   "tailSpan": 14.35,
+   "tailArea": 33,
+   "tailPos": {
+    "x": 0,
+    "y": 1.2,
+    "z": 14.9
+   },
+   "tailSweep": 30,
+   "finHeight": 7.16,
+   "finArea": 26.5,
+   "finPos": {
+    "x": 0,
+    "y": 3,
+    "z": 15.9
+   },
+   "finSweep": 36,
+   "fuselageRadius": 1.88,
+   "noseLength": 5.2,
+   "tailConeLength": 7.6,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 5.35,
+    "y": -2.3792000000000004,
+    "z": 2.4
+   },
+   "engineNacelleLen": 4.3,
+   "engineNacelleDia": 2.05,
+   "pylonLen": 2,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -13,
+     "y": -1.95,
+     "strutLen": 1.6942000000000004,
+     "wheelR": 0.38,
+     "wheelW": 0.24,
+     "wheels": 2,
+     "track": 0.75
+    },
+    "main": {
+     "x": 2.86,
+     "z": 0.9,
+     "y": -2.1,
+     "strutLen": 1.3592000000000004,
+     "wheelR": 0.565,
+     "wheelW": 0.28,
+     "wheels": 2,
+     "bogie": false,
+     "track": 5.72
+    }
+   },
+   "doorPositions": [
+    -11.9,
+    -6,
+    5.5,
+    12
+   ],
+   "windowRows": 32,
+   "refHeight": 4.0242,
+   "thrustArmZ": 0.9516800000000002,
+   "wingTipHeight": 0.5865279346284512,
+   "tailStrikeAngle": 9.33751663329521
+  }
+ },
+ "B777-300ER": {
+  "zN": -35.93,
+  "zT": 37.93,
+  "R": 3.1,
+  "groundY": -5.634576805184248,
+  "engY": -3.3345768051842484,
+  "engR": 1.7,
+  "mainAxleY": -4.384576805184248,
+  "noseAxleY": -4.984576805184248,
+  "ryScale": 1.03,
+  "flatBottom": 1,
+  "halfSkin": 29.483999999999998,
+  "finBase": 3.154900919354839,
+  "bbox": [
+   [
+    -31.84400000298023,
+    -5.634576805184248,
+    -35.93000030517578
+   ],
+   [
+    31.84400000298023,
+    14.154900919354839,
+    37.992583301961425
+   ]
+  ],
+  "dims": {
+   "length": 73.86,
+   "wingspan": 64.8,
+   "height": 18.5,
+   "wingArea": 436.8,
+   "wingSweep": 31.6,
+   "wingDihedral": 5,
+   "wingRootChord": 13.4,
+   "wingTipChord": 2.6,
+   "wingPos": {
+    "x": 0,
+    "y": -1.35,
+    "z": -0.6
+   },
+   "wingletHeight": 3.6,
+   "wingletCant": 0,
+   "tailSpan": 21,
+   "tailArea": 88,
+   "tailPos": {
+    "x": 0,
+    "y": 1.8,
+    "z": 27
+   },
+   "tailSweep": 35,
+   "finHeight": 11,
+   "finArea": 62,
+   "finPos": {
+    "x": 0,
+    "y": 5,
+    "z": 28.5
+   },
+   "finSweep": 42,
+   "fuselageRadius": 3.1,
+   "noseLength": 9.8,
+   "tailConeLength": 15.5,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 17.4,
+    "y": -4.634,
+    "z": 4.6
+   },
+   "engineNacelleLen": 8.4,
+   "engineNacelleDia": 3.4,
+   "pylonLen": 3.8,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -24.5,
+     "y": -3.3,
+     "strutLen": 3.004000000000001,
+     "wheelR": 0.65,
+     "wheelW": 0.45,
+     "wheels": 2,
+     "track": 1.2
+    },
+    "main": {
+     "x": 6,
+     "z": 3,
+     "y": -3.5,
+     "strutLen": 2.2040000000000006,
+     "wheelR": 1.25,
+     "wheelW": 0.48,
+     "wheels": 6,
+     "bogie": true,
+     "track": 12.9
+    }
+   },
+   "doorPositions": [
+    -23.5,
+    -14.5,
+    9.5,
+    20.5
+   ],
+   "windowRows": 52,
+   "refHeight": 6.954000000000001,
+   "thrustArmZ": 1.85,
+   "wingTipHeight": 2.369367301760063,
+   "tailStrikeAngle": 9.988998929712288
+  }
+ },
+ "B787-9": {
+  "zN": -30.405,
+  "zT": 32.405,
+  "R": 2.98,
+  "groundY": -5.074786361810443,
+  "engY": -2.9747863618104438,
+  "engR": 1.5,
+  "mainAxleY": -3.9547863618104433,
+  "noseAxleY": -4.474786361810444,
+  "ryScale": 1.03,
+  "flatBottom": 1,
+  "halfSkin": 27.354599999999998,
+  "finBase": 3.03802996875,
+  "bbox": [
+   [
+    -27.628146226593017,
+    -5.074786385652302,
+    -30.405000686645508
+   ],
+   [
+    27.628146226593017,
+    13.438030242919922,
+    32.467583301961426
+   ]
+  ],
+  "dims": {
+   "length": 62.81,
+   "wingspan": 60.12,
+   "height": 17.02,
+   "wingArea": 377,
+   "wingSweep": 32.2,
+   "wingDihedral": 6,
+   "wingRootChord": 12,
+   "wingTipChord": 2.2,
+   "wingPos": {
+    "x": 0,
+    "y": -1.2,
+    "z": 0.2
+   },
+   "wingletHeight": 0,
+   "wingletCant": 0,
+   "raked": true,
+   "tailSpan": 19,
+   "tailArea": 74,
+   "tailPos": {
+    "x": 0,
+    "y": 1.6,
+    "z": 23.5
+   },
+   "tailSweep": 35,
+   "finHeight": 10.4,
+   "finArea": 55,
+   "finPos": {
+    "x": 0,
+    "y": 4.6,
+    "z": 24.8
+   },
+   "finSweep": 40,
+   "fuselageRadius": 2.98,
+   "noseLength": 9,
+   "tailConeLength": 14,
+   "cockpitWindows": 4,
+   "enginePos": {
+    "x": 15.4,
+    "y": -4.4832,
+    "z": 4.6
+   },
+   "engineNacelleLen": 7,
+   "engineNacelleDia": 3,
+   "pylonLen": 3.4,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -21,
+     "y": -3,
+     "strutLen": 3.0032,
+     "wheelR": 0.6,
+     "wheelW": 0.42,
+     "wheels": 2,
+     "track": 1.1
+    },
+    "main": {
+     "x": 5.6,
+     "z": 2.6,
+     "y": -3.2,
+     "strutLen": 2.2832,
+     "wheelR": 1.12,
+     "wheelW": 0.44,
+     "wheels": 4,
+     "bogie": true,
+     "track": 11.2
+    }
+   },
+   "doorPositions": [
+    -20,
+    -11.5,
+    8.5,
+    18.5
+   ],
+   "windowRows": 42,
+   "refHeight": 6.6032,
+   "thrustArmZ": 1.7932800000000002,
+   "wingTipHeight": 1.843766687913766,
+   "tailStrikeAngle": 11.017847917573222
+  }
+ },
+ "C919": {
+  "zN": -18.45,
+  "zT": 20.45,
+  "R": 1.96,
+  "groundY": -4.1115212967324375,
+  "engY": -2.5865212967324376,
+  "engR": 1.075,
+  "mainAxleY": -3.5515212967324374,
+  "noseAxleY": -3.7115212967324376,
+  "ryScale": 1.05,
+  "flatBottom": 0.965,
+  "halfSkin": 17.02,
+  "finBase": 1.9098553779069765,
+  "bbox": [
+   [
+    -18.540000002980232,
+    -4.111521302692902,
+    -18.450000762939453
+   ],
+   [
+    18.540000002980232,
+    8.309855473274409,
+    20.51258330196142
+   ]
+  ],
+  "dims": {
+   "length": 38.9,
+   "wingspan": 35.8,
+   "height": 11.95,
+   "wingArea": 129,
+   "wingSweep": 25,
+   "wingDihedral": 5,
+   "wingRootChord": 7.2,
+   "wingTipChord": 1.5,
+   "wingPos": {
+    "x": 0,
+    "y": -1.1,
+    "z": 0.2
+   },
+   "wingletHeight": 2.2,
+   "wingletCant": 20,
+   "tailSpan": 13,
+   "tailArea": 33,
+   "tailPos": {
+    "x": 0,
+    "y": 1.2,
+    "z": 14.5
+   },
+   "tailSweep": 30,
+   "finHeight": 6.4,
+   "finArea": 23,
+   "finPos": {
+    "x": 0,
+    "y": 2.8,
+    "z": 15.4
+   },
+   "finSweep": 35,
+   "fuselageRadius": 1.96,
+   "noseLength": 5.5,
+   "tailConeLength": 8.6,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 5.6,
+    "y": -2.4714,
+    "z": 3.4
+   },
+   "engineNacelleLen": 4.5,
+   "engineNacelleDia": 2.15,
+   "pylonLen": 2.1,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -12.8,
+     "y": -2.05,
+     "strutLen": 1.7164000000000006,
+     "wheelR": 0.4,
+     "wheelW": 0.25,
+     "wheels": 2,
+     "track": 0.78
+    },
+    "main": {
+     "x": 3.7,
+     "z": 1.3,
+     "y": -2.25,
+     "strutLen": 1.3564000000000003,
+     "wheelR": 0.56,
+     "wheelW": 0.28,
+     "wheels": 2,
+     "bogie": false,
+     "track": 7.4
+    }
+   },
+   "doorPositions": [
+    -11.6,
+    -6.4,
+    5.2,
+    11.2
+   ],
+   "windowRows": 27,
+   "refHeight": 4.1664,
+   "thrustArmZ": 0.9885600000000001,
+   "wingTipHeight": 1.100352922885961,
+   "tailStrikeAngle": 9.935852167882954
+  }
+ },
+ "E190": {
+  "zN": -17.12,
+  "zT": 19.12,
+  "R": 1.62,
+  "groundY": -3.3083413048249577,
+  "engY": -2.113341304824958,
+  "engR": 0.775,
+  "mainAxleY": -2.8283413048249577,
+  "noseAxleY": -2.968341304824958,
+  "ryScale": 1.05,
+  "flatBottom": 0.965,
+  "halfSkin": 13.639999999999999,
+  "finBase": 1.4864094444444447,
+  "bbox": [
+   [
+    -14.920000002980231,
+    -3.3083413084012365,
+    -17.1200008392334
+   ],
+   [
+    14.920000002980231,
+    6.8864095398118765,
+    19.182583301961422
+   ]
+  ],
+  "dims": {
+   "length": 36.24,
+   "wingspan": 28.72,
+   "height": 10.57,
+   "wingArea": 92.5,
+   "wingSweep": 26,
+   "wingDihedral": 5,
+   "wingRootChord": 6.4,
+   "wingTipChord": 1.2,
+   "wingPos": {
+    "x": 0,
+    "y": -0.95,
+    "z": 0.4
+   },
+   "wingletHeight": 1.8,
+   "wingletCant": 22,
+   "tailSpan": 11,
+   "tailArea": 26,
+   "tailPos": {
+    "x": 0,
+    "y": 1,
+    "z": 13
+   },
+   "tailSweep": 30,
+   "finHeight": 5.4,
+   "finArea": 18,
+   "finPos": {
+    "x": 0,
+    "y": 2.5,
+    "z": 13.8
+   },
+   "finSweep": 34,
+   "fuselageRadius": 1.62,
+   "noseLength": 4.8,
+   "tailConeLength": 7.2,
+   "cockpitWindows": 6,
+   "enginePos": {
+    "x": 4.55,
+    "y": -2.2358000000000002,
+    "z": 2.6
+   },
+   "engineNacelleLen": 3.4,
+   "engineNacelleDia": 1.55,
+   "pylonLen": 1.7,
+   "gear": {
+    "nose": {
+     "x": 0,
+     "z": -11.4,
+     "y": -1.8,
+     "strutLen": 1.3208000000000002,
+     "wheelR": 0.34,
+     "wheelW": 0.2,
+     "wheels": 2,
+     "track": 0.66
+    },
+    "main": {
+     "x": 2.95,
+     "z": 1,
+     "y": -1.9,
+     "strutLen": 1.0808000000000004,
+     "wheelR": 0.48,
+     "wheelW": 0.24,
+     "wheels": 2,
+     "bogie": false,
+     "track": 5.9
+    }
+   },
+   "doorPositions": [
+    -10.4,
+    -5.4,
+    5,
+    10.6
+   ],
+   "windowRows": 25,
+   "refHeight": 3.4608000000000003,
+   "thrustArmZ": 0.8943200000000001,
+   "wingTipHeight": 0.8544627917677315,
+   "tailStrikeAngle": 8.237104495715423
+  }
+ }
+}

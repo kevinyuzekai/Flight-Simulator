@@ -1,6 +1,6 @@
 # 资源许可 / Asset Licenses
 
-本文件列出 **天际航线 SkyRoute beta 0.3.2**（原名“飞行模拟器”）中使用的全部第三方资源、其作者、许可证以及所做的修改。
+本文件列出 **天际航线 SkyRoute beta 0.4**（原名“飞行模拟器”）中使用的全部第三方资源、其作者、许可证以及所做的修改。
 游戏内也可以在主菜单点击 **「致谢 / 许可」** 查看同样的信息（联网地景开启时，点击画面右下角的署名条也会打开该面板）。
 
 > 代码许可：v0.1 发布包与本仓库目前**都没有附带代码许可证文件**。下面只说明第三方资源的许可，
@@ -57,27 +57,55 @@
 
 ---
 
-## 2. 仍使用程序化模型的机型
+## 1.5 beta 0.4 新增的真实机型模型 —— Sketchfab 作者发布的 CC BY 4.0 模型（经 Objaverse 获取）
 
-以下机型没有找到许可证允许再分发（CC0 / 公有领域 / CC BY）且质量可用的模型，继续使用游戏原有的程序化模型，没有用其他机型的模型冒充：
+以下三个模型由各自作者在 Sketchfab 上以 **CC BY 4.0（Creative Commons Attribution）** 发布。我们通过 Allen Institute for AI 的
+[Objaverse 数据集](https://huggingface.co/datasets/allenai/objaverse)（按每个对象原始的许可证再分发）下载了 GLB 文件；
+许可证以 Sketchfab 页面和 Objaverse 元数据中标注的 “CC Attribution” 为准（2026-10-05 通过 Sketchfab 公开 API 复核，三个模型当前仍标注为 CC Attribution、允许下载）。
 
-| 机型 | 原因 / 0.3.2 处理 |
-|---|---|
-| B737-MAX8 | amvlab 只有 737NG 外形。**beta 0.3.2** 起使用 B737-800 真实外形作为近似基底（菜单标「真实模型 · 近似」），LEAP / AT 小翼差异未单独建模 |
-| A330-300 | 没有找到许可证合适的模型；继续程序化，并提高了材质反光 |
-| B777-300ER | 没有找到许可证合适的模型；继续程序化 |
-| C919 | 没有找到许可证合适的模型；继续程序化 |
-| E190 | 没有找到许可证合适的模型；继续程序化 |
+| 游戏机型 | 源模型（Sketchfab） | 作者 | 许可证 | 原始面数 |
+|---|---|---|---|---|
+| A330-300 | ["Airbus A330"](https://sketchfab.com/3d-models/b474aa79c03148f78f607ce816839824) | Andre11230 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 106,460 |
+| B737-MAX8 | ["737 Max-8 (Free)"](https://sketchfab.com/3d-models/197ae72ceb5441efa91b8bdc2ee37050) | AMGP3D | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 42,264 |
+| B777-300ER | ["Boeing 777- 300ER"](https://sketchfab.com/3d-models/cfe500ad3fb14b9ba950dd5403f57ec1) | Adam.White | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 236,444 |
 
-排查过但没有采用的来源：Sketchfab（大量 CC BY 模型需要登录 / API 才能下载，且不少疑似从游戏中提取）、FlightGear 及其衍生的 fr24 3D 模型（GPL v2，许可证不兼容本项目的发布方式）、Poly Pizza / OpenGameArt（只有通用的低多边形飞机）、NASA / Smithsonian 3D（没有这些机型）、Stratosphere Studios 777（CC BY-NC-SA，禁止商用）。
+三个源模型都是**白色、无航空公司涂装**的模型（作者描述分别为自行建模的 A330、“Detailed Boeing 737 Max-8 3D Model Free”、
+“a blank white Boeing 777-300ER … Made with Maya / Substance Painter”）。
+
+**所做的修改**（由仓库内 `tools/model-build/build_models_v04.mjs` 自动完成）：
+
+1. 坐标转换与自动朝向（机头 −Z、上 +Y、右翼 +X）。
+2. **去除起落架**（按材质与“机身下方、不与机身相连的小部件”判定），游戏继续使用程序化起落架、舱门与灯光，保证接地点与飞行动力学一致。
+3. **网格简化**：用 meshoptimizer 简化到约 1.8 万三角面，并按 38° 折角重新计算法线。
+4. **按机型尺寸缩放**：机身直径、翼展、全长分别对齐 `config.js` 中的机型参数，机头对齐原程序化模型位置。
+5. **重新贴图**：丢弃源模型的材质与贴图（777 源贴图带有颜色瑕疵），重新生成 UV，由脚本**自绘**中性白色底图（舷窗、舱门轮廓、风挡、蒙皮接缝）和涂装遮罩（垂尾 / 腰线 / 机腹），游戏按菜单所选的中性涂装着色。**没有任何航空公司或制造商的标志、文字或注册号。**
+6. 737 MAX 的风扇叶片拆成独立部件，随 N1 转动；A330 / 777 的风扇为静态。舵面、襟翼、反推等在真实模型上为静态。
+7. 以 base64 内嵌到 `models/ac_a330_300.js`、`ac_b737_max8.js`、`ac_b777_300er.js` 与 `tex_a330.js`、`tex_b737max.js`、`tex_b777.js`，离线 / `file://` 可用。
+
+**署名**：
+
+> "Airbus A330" by Andre11230 (https://sketchfab.com/3d-models/b474aa79c03148f78f607ce816839824),
+> "737 Max-8 (Free)" by AMGP3D (https://sketchfab.com/3d-models/197ae72ceb5441efa91b8bdc2ee37050),
+> "Boeing 777- 300ER" by Adam.White (https://sketchfab.com/3d-models/cfe500ad3fb14b9ba950dd5403f57ec1),
+> all licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), obtained via the Objaverse dataset.
+> Modified by the SkyRoute (Flight-Simulator) project: landing gear removed, decimated, rescaled, re-UV-mapped and repainted to a neutral livery, embedded as JavaScript.
+
+**需要注意**：和 amvlab 模型一样，我们只能依据作者在 Sketchfab 上的许可声明使用，**无法独立核实模型是否完全由作者原创**。
+如日后发现来源问题，删除 `index.html` 中对应的 `<script>` 标签即可退回程序化模型（或在地址后加 `?procedural=1`）。
 
 ---
 
-## 2.1 beta 0.3.2 机模增强
+## 2. 仍使用程序化模型的机型（beta 0.4）
 
-- 真实外形机型材质：提高金属度、降低粗糙度，令铝合金蒙皮在阳光下更有光泽
-- 程序化机型同样提高了蒙皮反光
-- 仍未找到可商用（CC0 / CC BY）且质量更高的独立 A330 / 777 / C919 / E190 模型；若日后出现会优先替换
+| 机型 | 原因 |
+|---|---|
+| C919 | 没有找到许可证允许商用再分发（CC0 / CC BY）且质量可用的模型；继续程序化，不用其他机型冒充 |
+| E190 | 同上（Objaverse / Sketchfab 中检索到的 “E190” 结果不是该机型或许可证不合适） |
+
+beta 0.3.2 中 B737-MAX8 借用 737-800 外形（「真实模型 · 近似」）的做法在 0.4 中取消，改用上面的独立 737 MAX 8 模型；
+A330-300 与 B777-300ER 也从程序化模型换成了独立模型。
+
+排查过但没有采用的来源：FlightGear 及其衍生的 fr24 3D 模型（GPL v2，许可证不兼容本项目的发布方式）、Poly Pizza / OpenGameArt（只有通用的低多边形飞机）、NASA / Smithsonian 3D（没有这些机型）、Stratosphere Studios 777（CC BY-NC-SA，禁止商用）、Sketchfab 上带航空公司涂装或疑似从游戏中提取的模型（未采用）。
 
 ---
 
@@ -168,16 +196,18 @@ beta 0.3.1 的**三维驾驶舱**（`js/cockpit3d.js`：风挡框、遮光板、
 
 ---
 
-## 6. 立体机场（beta 0.3.2，程序化）
-
-航站楼、塔台、机库、廊桥、停机坪与滑行道均为本项目**原创程序化几何**与 Canvas 贴图，不嵌入第三方建筑模型。
+## 7. 立体机场（beta 0.4：OpenStreetMap 数据 + 程序化建筑）
 
 | 项目 | 说明 |
 |---|---|
-| 内置真实布局 | ZSPD / ZBAA / ZGGG / VHHH / KJFK / KLAX / EGLL / RJTT / WSSS / OMDB / ZUUU / ZSSS / RJAA / EDDF / LFPG（相对机场基准点的东/南偏移，依据公开航图与卫星影像目视校对） |
-| 其余机场 | 由跑道几何自动生成通用航站区（跑道一侧） |
-| 联网 OSM（可选） | 开启联网地景时，浏览器会尝试向 Overpass API 请求 `aeroway=taxiway/apron/terminal` 等要素以补充滑行道；失败或 CORS 不可用时静默回退，不影响内置布局 |
-| OSM 许可 | OpenStreetMap 数据 © OpenStreetMap contributors，[ODbL](https://www.openstreetmap.org/copyright)；仅在线按需使用，不随安装包分发 |
+| 数据来源 | [OpenStreetMap](https://www.openstreetmap.org/copyright)，© OpenStreetMap contributors，**ODbL 1.0**（https://opendatacommons.org/licenses/odbl/1-0/） |
+| 获取方式 | 构建期用 `tools/osm-airports/fetch-osm.js` 通过 OSM API 0.6 下载各机场跑道外包框附近的数据（原始数据不入库），再由 `build-layouts.js` 提取 `aeroway=terminal/hangar/apron/taxiway/jet_bridge`、`man_made=tower` 等要素，生成 `js/airport-osm-data.js` |
+| 衍生数据库 | `js/airport-osm-data.js` 是 OSM 数据的衍生数据库，**同样以 ODbL 1.0 提供**；文件头部带有署名与许可说明 |
+| 渲染 | 航站楼、机库等按 OSM 轮廓**程序化挤出**（有 `height` / `building:levels` 标签时按标签，否则按类型估算高度），停机坪、滑行道（含黄色中线）、廊桥、塔台均为程序化几何与 Canvas 贴图，**不是真实建筑模型** |
+| 覆盖范围 | 游戏机场库中下载到 OSM 数据的机场（游戏内「致谢 / 许可」面板显示具体数量）；其余机场使用 0.3.2 的手工布局或按跑道自动生成的通用航站区 |
+| 游戏内署名 | 「致谢 / 许可」面板中注明 “© OpenStreetMap contributors, ODbL 1.0” |
 
-评估过但未嵌入分发的资源：3dassets.dev「Airport Terminal and Ground Operations」套件（CC0，偏管理模拟器卡通风格，与卫星地景风格不一致，故未采用）。
+0.3.2 的 15 座手工布局（ZSPD / ZBAA / ZGGG / VHHH / KJFK / KLAX / EGLL / RJTT / WSSS / OMDB / ZUUU / ZSSS / RJAA / EDDF / LFPG）
+仍作为没有 OSM 数据时的后备。联网地景开启时，对没有内置数据的机场仍会尝试在线请求 Overpass API 补充滑行道（失败时静默回退）。
 
+评估过但未嵌入分发的资源：3dassets.dev「Airport Terminal and Ground Operations」套件（CC0，偏卡通风格，与卫星地景风格不一致，故未采用）。

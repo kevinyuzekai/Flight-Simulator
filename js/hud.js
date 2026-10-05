@@ -424,11 +424,11 @@
 
     btn('fcu-ap1', function () {
       if (sim.ap.ap.ap1) sim.ap.disengage('人工断开');
-      else sim.ap.engage(1);
+      else if (!sim.ap.engage(1)) self.notify('无法接通自动驾驶 (失速 / 严重超速)', 'warn');
     });
     btn('fcu-ap2', function () {
       if (sim.ap.ap.ap2) sim.ap.disengage('人工断开');
-      else sim.ap.engage(2);
+      else if (!sim.ap.engage(2)) self.notify('无法接通自动驾驶 (失速 / 严重超速)', 'warn');
     });
     btn('fcu-athr', function () {
       sim.ap.ap.athr = !sim.ap.ap.athr;
@@ -449,8 +449,8 @@
       self.notify('FLCH / 速度优先', 'info');
     });
     btn('fcu-apdisconnect', function () {
-      sim.ap.disengage('人工断开');
-      self.notify('自动驾驶断开', 'warn');
+      // beta 0.4: 接通时断开; 已断开时再按 = 断开警告消音
+      if (sim.ap.instinctiveDisconnect('人工断开') === 'silenced') self.notify('AP 断开警告已消音', 'info', 1500);
     });
     btn('fcu-level', function () {
       sim.ap.setPitchMode('ALT');

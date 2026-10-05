@@ -240,7 +240,7 @@
     FS.Bus.on('fm:apuStart', function () { self.audio.playCue('apu_start'); });
     FS.Bus.on('ap:engaged', function () { self.audio.playCue('autopilot_engage'); });
     FS.Bus.on('ap:disengaged', function (e) {
-      self.hud.notify('自动驾驶断开: ' + (e.reason || ''), 'warn');
+      self.hud.notify('自动驾驶断开: ' + (e.reason || '') + (e.athr ? ' · A/THR 保持' : '') + ' — 再按 T / AP 断开钮消音', 'warn', 5000);
     });
     FS.Bus.on('ap:altCapture', function () { self.audio.playCue('chime_low'); });
     FS.Bus.on('ap:locCaptured', function () { self.hud.notify('LOC 已截获', 'info'); });
@@ -340,12 +340,12 @@
         for (var ai = 0; ai < this.airport3dGroups.length; ai++) this.scene.add(this.airport3dGroups[ai]);
         var nDet = 0;
         for (var aj = 0; aj < this.airport3dGroups.length; aj++) if (this.airport3dGroups[aj].userData.detailed) nDet++;
-        FS.Log.info('立体机场: 已生成 ' + this.airport3dGroups.length + ' 座 (其中 ' + nDet + ' 座为真实布局)');
+        FS.Log.info('立体机场: 已生成 ' + this.airport3dGroups.length + ' 座 (其中 ' + nDet + ' 座为真实布局, 内置 OSM 轮廓库 ' + FS.Airport3D.osmCount() + ' 座)');
         // 联网时对出发/到达机场尝试 OSM 补充滑行道
         if (FS.CFG.onlineScenery && opts.online !== false) {
           var selfOsm = this;
           [dep, opts.arrIcao ? FS.Airports.byIcao(opts.arrIcao) : null].forEach(function (apOsm) {
-            if (!apOsm) return;
+            if (!apOsm || FS.Airport3D.hasOsmLayout(apOsm.icao)) return;   // beta 0.4: 已内置真实轮廓, 不再联网补充
             var grp = null;
             for (var gi = 0; gi < selfOsm.airport3dGroups.length; gi++) {
               if (selfOsm.airport3dGroups[gi].userData.airport && selfOsm.airport3dGroups[gi].userData.airport.icao === apOsm.icao) {
@@ -560,6 +560,7 @@
       this.towerByIcao = null;
     }
     this.env.clearFlattenZones && this.env.clearFlattenZones();
+    try { FS.Audio.playCue('ap_disconnect_stop'); } catch (eA) { /* */ }
   };
 
   /* ---------------------------------------------------------------------
@@ -981,8 +982,9 @@
 
     // 摇杆
     fm.setPilotInput(input.axes.pitch, input.axes.roll, input.axes.yaw);
-    fm.pilotOverride = (Math.abs(input.axes.pitch) > 0.35 || Math.abs(input.axes.roll) > 0.35) &&
-      (Math.abs(input.axes.pitch) > 0.6 || Math.abs(input.axes.roll) > 0.6);
+    // beta 0.4: 超控判定只看键盘/摇杆/手柄/触摸杆量 (鼠标驾驶杆不算), 由 Autopilot 做「持续推杆」计时
+    fm.pilotOverrideMag = input.overrideMag || 0;
+    fm.pilotOverride = fm.pilotOverrideMag > 0.5;
 
     // 油门 (除非 A/THR 接管)
     if (!ap.ap.athr) {
@@ -1154,7 +1156,8 @@
     }
     /* --- 摇杆 AP 断开按钮 --- */
     if (input.consume('apDisconnect')) {
-      if (ap.ap.engaged) ap.disengage('侧杆按钮断开');
+      // beta 0.4: 接通时断开; 已断开时再按 = 断开警告消音
+      if (ap.instinctiveDisconnect('侧杆按钮断开') === 'silenced') this.hud.notify('AP 断开警告已消音', 'info', 1500);
     }
     var viewKeys = [
       ['viewCockpit', 'cockpit'], ['viewWing', 'wing'], ['viewChase', 'chase'],
@@ -1219,7 +1222,10 @@
 
     /* --- 自动驾驶 --- */
     if (input.consume('apToggle')) {
-      if (ap.ap.engaged) ap.disengage('人工断开'); else ap.engage(1);
+      // beta 0.4: 断开 → 警告音持续; 再按一次消音; 再按才重新接通
+      var tg = ap.toggle();
+      if (tg === 'silenced') this.hud.notify('AP 断开警告已消音 (再按 T 接通)', 'info', 2000);
+      else if (tg === 'refused') this.hud.notify('无法接通自动驾驶 (失速 / 严重超速)', 'warn', 2500);
     }
     if (input.consume('apThrottle')) {
       ap.ap.athr = !ap.ap.athr;

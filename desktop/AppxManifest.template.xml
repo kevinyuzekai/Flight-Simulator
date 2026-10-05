@@ -25,14 +25,11 @@
                           BackgroundColor="transparent"
                           Square150x150Logo="assets\Square150x150Logo.png"
                           Square44x44Logo="assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="assets\Wide310x150Logo.png"
-                         Square71x71Logo="assets\Square71x71Logo.png"
-                         Square310x310Logo="assets\Square310x310Logo.png"
+        <!-- beta 0.4: 只使用正方形应用图标 (不提供宽幅 Wide310x150 / 大磁贴 Square310x310) -->
+        <uap:DefaultTile Square71x71Logo="assets\Square71x71Logo.png"
                          ShortName="天际航线">
           <uap:ShowNameOnTiles>
             <uap:ShowOn Tile="square150x150Logo" />
-            <uap:ShowOn Tile="wide310x150Logo" />
-            <uap:ShowOn Tile="square310x310Logo" />
           </uap:ShowNameOnTiles>
         </uap:DefaultTile>
         <uap:SplashScreen Image="assets\SplashScreen.png" BackgroundColor="#0B2A5B" />

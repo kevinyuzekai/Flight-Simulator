@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/brand/skyroute_logo_transparent.png" alt="天际航线 SkyRoute" width="460"></p>
+<p align="center"><img src="assets/brand/skyroute_app_icon_512.png" alt="天际航线 SkyRoute" width="160"></p>
 
 # 天际航线 SkyRoute(仅娱乐,不喜勿喷)
 
@@ -13,6 +13,18 @@ Windows 用户也可以下载安装版（见 [Releases](https://github.com/kevin
 ![主菜单](screenshots/01-主菜单.png)
 
 ---
+
+## beta 0.4 更新
+
+- **更多立体机场**：机场库中的大型机场改用 OpenStreetMap 数据（© OpenStreetMap contributors，ODbL 1.0）生成真实轮廓的航站楼 / 机库、停机坪、带黄色中线的滑行道、廊桥与塔台位置（建筑为程序化挤出，不是真实建筑模型）；没有数据的机场仍使用手工布局或自动生成的航站区
+- **新的真实机模**：A330-300、737 MAX 8、777-300ER 换成 Sketchfab 作者以 CC BY 4.0 发布的独立模型（经 Objaverse 获取，去除起落架、简化、按机型尺寸缩放、重绘为无标志的中性涂装），署名见「致谢 / 许可」与 [ASSETS_LICENSES.md](ASSETS_LICENSES.md)；C919 / E190 仍为程序化模型
+- **自动驾驶手感**：
+  - 断开 AP 时 **A/THR 保持**（THR CLB/IDLE 自动转为 SPEED / MACH），不会突然失去推力管理
+  - 鼠标调参 / 点击 FCU 不再被当成推杆超控；鼠标驾驶杆模式下光标在界面上时杆量冻结
+  - 推杆超控需**持续约 1 秒**才断开（轻碰、瞬时修正不会断开）
+  - 轻度超速不再断开 AP（只有严重超速持续 3 秒或失速才保护性断开）；接近 VMO 时不再压机头加速
+  - 断开警告音**持续响到再按一次 T / AP 断开钮**才消音
+- 修复 0.3.2 中使用真实外形模型的机型可能「启动飞行失败」的问题
 
 ## beta 0.3.2 更新
 
@@ -114,7 +126,7 @@ Windows 用户也可以下载安装版（见 [Releases](https://github.com/kevin
 
 **Windows 安装版**
 
-- Release 中提供 `SkyRoute-Setup-beta_v0.3-x64.exe`（Electron 桌面版，NSIS 安装程序，可选安装目录，创建开始菜单和桌面快捷方式「天际航线」，带卸载程序）
+- Release 中提供 Windows 免安装便携版（`SkyRoute-Windows-portable-beta_v0.4-x64.zip`，解压后运行 `天际航线.exe`）；部分版本另附 NSIS 安装程序 `SkyRoute-Setup-beta_v*-x64.exe`
 - 游戏通过内置的 `app://skyroute` 协议本地加载，联网地景、摇杆都可正常使用；`F11` 全屏
 - 安装包**未进行代码签名**，首次运行时 Windows SmartScreen 可能提示「已保护你的电脑」，点「更多信息 → 仍要运行」即可
 - 同时准备了 Microsoft Store 用的 MSIX 包（尚未上架）
@@ -190,7 +202,7 @@ Windows 用户也可以下载安装版（见 [Releases](https://github.com/kevin
 
 ## 快速开始
 
-**Windows：** 下载并运行 Release 中的 `SkyRoute-Setup-beta_v0.3-x64.exe` 安装（未签名，SmartScreen 提示时选「仍要运行」）
+**Windows：** 下载 Release 中的便携版 `SkyRoute-Windows-portable-beta_v0.4-x64.zip` 解压运行（或安装程序，如有；均未签名，SmartScreen 提示时选「仍要运行」）
 
 **macOS：** 双击 `启动游戏.command`
 

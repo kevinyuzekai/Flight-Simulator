@@ -47,7 +47,8 @@ rm -rf build-msix && mkdir -p "$LAYOUT/assets"
 cp -a dist/win-unpacked/. "$LAYOUT/"
 mv "$LAYOUT/天际航线.exe" "$LAYOUT/SkyRoute.exe"
 # 只放基础文件名的图片 (没有 resources.pri 时 Windows 直接使用这些文件)
-for f in StoreLogo Square44x44Logo Square71x71Logo Square150x150Logo Square310x310Logo Wide310x150Logo SplashScreen; do
+# beta 0.4: 只打包正方形图标 (+ 启动画面: 品牌底色上居中的方形图标)
+for f in StoreLogo Square44x44Logo Square71x71Logo Square150x150Logo SplashScreen; do
   cp "build/appx/$f.png" "$LAYOUT/assets/$f.png"
 done
 

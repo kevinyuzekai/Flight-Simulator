@@ -121,7 +121,7 @@
     if (base && A && A[base]) {
       var src = A[base];
       return {
-        body: src.body, fans: src.fans, plug: src.plug, triangles: src.triangles,
+        body: src.body, fans: src.fans, plug: src.plug, triangles: src.triangles, texId: src.texId,
         source: src.source, derived: true, hybrid: true, hybridOf: base,
         credit: src.credit
       };
@@ -925,7 +925,7 @@
     function buildAssetBody() {
       var tex = assetTexture(asset.texId, lv);
       var matSkin = new THREE.MeshStandardMaterial({
-        map: skinMap, color: 0xffffff,
+        map: tex || null, color: tex ? 0xffffff : lv.body,     // beta 0.4: 修复 0.3.2 中未定义的 skinMap
         metalness: 0.28, roughness: 0.32, side: THREE.FrontSide,
         envMapIntensity: 1.15
       });
