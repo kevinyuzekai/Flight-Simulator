@@ -8,13 +8,15 @@
 包含 11 种民航机型、77 个真实机场、10 个飞行场景和完整的玻璃座舱航电。
 
 不需要安装任何东西，不需要构建，**离线即可完整游玩**；联网时可选加载全球真实卫星影像与地形（beta 0.3）。
-Windows 用户可下载**便携版 zip**（见 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)）；商店用 MSIX。本版 **无 NSIS Setup.exe**（旧版「如有 Setup」可安装）。
+**最新版本：beta 0.4.1**（[发布页](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.4.1)）——网页版 [`SkyRoute-beta_v0.4.1.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.4.1/SkyRoute-beta_v0.4.1.zip)；Windows **便携版 zip** [`SkyRoute-Windows-portable-beta_v0.4.1-x64.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.4.1/SkyRoute-Windows-portable-beta_v0.4.1-x64.zip)；商店用 MSIX。本版 **无 NSIS Setup.exe，Windows 仅提供便携版 zip**（旧版「如有 Setup」可安装）。旧版本（beta 0.4 / 0.3.x）仍保留在 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)。
 
 ![主菜单](screenshots/01-主菜单.png)
 
 ---
 
-## 0.4.1 修正（摇杆 / 脚舵）
+## beta 0.4.1 更新（摇杆 / 脚舵热修复）
+
+下载：[发布页](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.4.1) · [`SkyRoute-beta_v0.4.1.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.4.1/SkyRoute-beta_v0.4.1.zip)（网页版）· [`SkyRoute-Windows-portable-beta_v0.4.1-x64.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.4.1/SkyRoute-Windows-portable-beta_v0.4.1-x64.zip)（Windows 便携版，无 NSIS Setup.exe）
 
 - **脚舵不再抢驾驶杆**：方向舵脚舵（名称含 Rudder / Pedal / TFRP / TPR / T-Rudder / Skywalker）自动识别为「脚舵」：踏板 = 方向舵，左/右趾刹 = 刹车（连续量），不再把趾刹当成俯仰/横滚覆盖侧杆
 - **多设备合成**：每台设备只使用与其类型相符的轴（或手动绑定的轴）；俯仰/横滚 侧杆 > HOTAS > 其它摇杆，方向舵 脚舵 > 扭转/拨片
@@ -23,6 +25,8 @@ Windows 用户可下载**便携版 zip**（见 [Releases](https://github.com/kev
 - 旧的自动猜测映射会按新规则重建；手动改过的映射保留
 
 ## beta 0.4 更新
+
+（历史版本：[beta_v0.4 发布页](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.4)）
 
 - **更多立体机场**：机场库中的大型机场改用 OpenStreetMap 数据（© OpenStreetMap contributors，ODbL 1.0）生成真实轮廓的航站楼 / 机库、停机坪、带黄色中线的滑行道、廊桥与塔台位置（建筑为程序化挤出，不是真实建筑模型）；没有数据的机场仍使用手工布局或自动生成的航站区
 - **新的真实机模**：A330-300、737 MAX 8、777-300ER 换成 Sketchfab 作者以 CC BY 4.0 发布的独立模型（经 Objaverse 获取，去除起落架、简化、按机型尺寸缩放、重绘为无标志的中性涂装），署名见「致谢 / 许可」与 [ASSETS_LICENSES.md](ASSETS_LICENSES.md)；C919 / E190 仍为程序化模型
@@ -134,7 +138,7 @@ Windows 用户可下载**便携版 zip**（见 [Releases](https://github.com/kev
 
 **Windows 桌面版**
 
-- Release 中提供 Windows **免安装便携版**（`SkyRoute-Windows-portable-beta_v0.4-x64.zip`，解压后运行 `天际航线.exe`）。**beta 0.4 无 NSIS Setup.exe**；个别旧版本「如有 Setup」才有安装程序
+- Release 中提供 Windows **免安装便携版**（`SkyRoute-Windows-portable-beta_v0.4.1-x64.zip`，解压后运行 `天际航线.exe`）。**beta 0.4 / 0.4.1 无 NSIS Setup.exe，仅便携版 zip**；个别旧版本「如有 Setup」才有安装程序
 - 游戏通过内置的 `app://skyroute` 协议本地加载，联网地景、摇杆都可正常使用；`F11` 全屏
 - 便携版**未进行代码签名**，首次运行时 Windows SmartScreen 可能提示「已保护你的电脑」，点「更多信息 → 仍要运行」即可
 - Microsoft Store 用 MSIX 包（Partner Center 提交；商店页可能滞后于 GitHub）
@@ -189,6 +193,10 @@ Windows 用户可下载**便携版 zip**（见 [Releases](https://github.com/kev
 
 ## 目录
 
+- [beta 0.4.1 更新（摇杆 / 脚舵热修复）](#beta-041-更新摇杆--脚舵热修复)
+- [beta 0.4 更新](#beta-04-更新)
+- [beta 0.3.2 更新](#beta-032-更新)
+- [beta 0.3.1 更新](#beta-031-更新)
 - [beta 0.3 更新](#beta-03-更新)
 - [beta 0.2 更新](#beta-02-更新)
 - [快速开始](#快速开始)
@@ -210,7 +218,7 @@ Windows 用户可下载**便携版 zip**（见 [Releases](https://github.com/kev
 
 ## 快速开始
 
-**Windows：** 下载 Release 中的便携版 `SkyRoute-Windows-portable-beta_v0.4-x64.zip` 解压运行（**本版无 Setup.exe**；旧版「如有 Setup」才可安装。未签名，SmartScreen 提示时选「仍要运行」。商店用 MSIX）
+**Windows：** 下载 [beta 0.4.1 Release](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.4.1) 中的便携版 `SkyRoute-Windows-portable-beta_v0.4.1-x64.zip` 解压运行（**本版无 NSIS Setup.exe，仅便携版 zip**；旧版「如有 Setup」才可安装。未签名，SmartScreen 提示时选「仍要运行」。商店用 MSIX）
 
 **macOS：** 双击 `启动游戏.command`
 
