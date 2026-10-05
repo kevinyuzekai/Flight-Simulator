@@ -19,6 +19,7 @@
     this.running = false;
     this.paused = false;
     this.timeScale = 1;
+    this.simpleInstruments = false;   // beta 0.3.1+: 已取消 2D 六屏叠加, 仅三维驾驶舱
     this.frame = 0;
     this.fpsHist = new FS.Ring(60);
     this.lastTime = 0;
@@ -208,6 +209,11 @@
 
     FS.Bus.on('warning:stall', function (on) {
       if (on) { self.audio.playCue('stall_start'); self.hud.notify('失速警告 — 立即减小迎角', 'error', 8000); }
+      else self.audio.playCue('stall_stop');
+    });
+    // beta 0.3.1: 737 / 737 MAX / E190 抖杆器 (驾驶杆在 3D 驾驶舱中抖动, 并发出失速提示音)
+    FS.Bus.on('warning:stickShaker', function (on) {
+      if (on) { self.audio.playCue('stall_start'); self.hud.notify('抖杆 STALL — 失速保护已介入, 请推杆 / 加油门', 'error', 6000); }
       else self.audio.playCue('stall_stop');
     });
     FS.Bus.on('warning:overspeed', function (on) {
@@ -411,6 +417,22 @@
     }, this.aircraftModel.dims || FS.AIRCRAFT_DB[typeKey].dims);
     this.cameraRig.setMode('cockpit');
 
+    /* ---- beta 0.3.1: 三维驾驶舱 (驾驶舱视角唯一模式; 已取消 2D 六屏叠加) ---- */
+    this.cockpit3d = null;
+    this.cameraRig.setCockpit3D(null);
+    if (FS.Cockpit3D) {
+      try {
+        this.cockpit3d = new FS.Cockpit3D(THREE, typeKey, { sim: this });
+        var ca = this.cameraRig.anchors.cockpitL;
+        this.cockpit3d.group.position.set(0, ca ? ca.position.y : 1, ca ? ca.position.z : -10);
+        this.aircraftModel.group.add(this.cockpit3d.group);
+        this.cameraRig.setCockpit3D(this.cockpit3d);
+        FS.Cockpit3D.bindInteraction(this);
+        FS.Log.info('三维驾驶舱: ' + this.cockpit3d.L.maker + ' 布局, 显示器 ' + Math.round(this.cockpit3d.L.du * 1000) + ' mm');
+      } catch (e3) { this.cockpit3d = null; FS.Log.warn('三维驾驶舱创建失败: ' + e3.message); }
+    }
+    this._applyCockpitUi(true);
+
     /* ---- 声音 ---- */
     this.audio.loadAircraft(typeKey);
 
@@ -435,6 +457,8 @@
     this._syncModel(0);
 
     /* ---- 摄像机初始 ---- */
+    if (this._startView === 'panel') this.cameraRig.togglePanelView(true);
+    else if (this._startView && this._startView !== 'cockpit') this.cameraRig.setMode(this._startView);
     this.cameraRig._initialized = false;
     this.cameraRig.update(0.016, this.fm.getState(), null);
 
@@ -457,7 +481,7 @@
     this._vspeedsCache = null;
     this.hideLoading();
 
-    this.hud.notify('起飞前: 按 ? 或 F1 查看操作说明 · C 切换视角 · M 鼠标驾驶杆', 'info', 9000);
+    this.hud.notify('起飞前: 按 ? 或 F1 查看操作说明 · C 切换视角 · N 看仪表板 · Tab 侧边面板 · M 鼠标驾驶杆', 'info', 9000);
     FS.Log.info('飞行开始: ' + typeKey + ' @ ' + dep.icao + '/' + runwayIdent + ' 场景=' + scenarioId);
 
     // 尝试请求指针锁定 (失败也无妨)
@@ -466,6 +490,8 @@
 
   Sim.prototype._teardown = function () {
     var THREE = this.THREE;
+    if (this.cockpit3d) { try { this.cockpit3d.dispose(); } catch (e0) { /* */ } this.cockpit3d = null; }
+    if (this.cameraRig) { this.cameraRig.setCockpit3D(null); this.cameraRig.use3d = false; }
     if (this.aircraftRoot) {
       this.scene.remove(this.aircraftRoot);
       this.aircraftRoot.traverse(function (o) {
@@ -491,6 +517,40 @@
       this.runwayGroups = null;
     }
     this.env.clearFlattenZones && this.env.clearFlattenZones();
+  };
+
+  /* ---------------------------------------------------------------------
+     beta 0.3.1: 三维驾驶舱界面 (已取消 2D 六屏 / 简化仪表)
+     --------------------------------------------------------------------- */
+  Sim.prototype.toggleSimpleInstruments = function () {
+    // 兼容旧调用: 已取消简化仪表, 始终保持关闭
+    this.simpleInstruments = false;
+    this._applyCockpitUi();
+    if (this.hud) this.hud.notify('本版仅三维驾驶舱 (已取消 2D 六屏叠加)', 'info', 2200);
+    return false;
+  };
+
+  Sim.prototype._applyCockpitUi = function () {
+    var doc = global.document;
+    var in3d = !!(this.cockpit3d && this.cameraRig && this.cameraRig.isCockpit());
+    var d = doc.getElementById('displays'); if (d) d.classList.add('hidden');
+    var f = doc.getElementById('fcu'); if (f) f.classList.toggle('hidden', in3d);
+    var b = doc.getElementById('simple-btn'); if (b) b.classList.add('hidden');
+    var pv = doc.getElementById('panelview-btn'); if (pv) pv.classList.toggle('hidden', !in3d);
+    doc.body.classList.toggle('cockpit-3d', in3d);
+    // 三维驾驶舱自带操纵台: 右侧 2D 操纵台默认收起 (Tab / ▤ 可打开)
+    if (this.hud && !this.hud._sidePanelsUser) {
+      var rc = doc.getElementById('right-col'); if (rc) rc.classList.toggle('hidden', in3d);
+    }
+  };
+
+  Sim.prototype.togglePanelView = function () {
+    if (!this.cameraRig) return;
+    if (!this.cameraRig.isCockpit()) this.cameraRig.setMode('cockpit');
+    this.simpleInstruments = false;
+    var on = this.cameraRig.togglePanelView();
+    var pv = global.document.getElementById('panelview-btn'); if (pv) pv.classList.toggle('on', on);
+    this.hud.notify(on ? '看向仪表板 (N 恢复向外看)' : '向外看', 'info', 1500);
   };
 
   Sim.prototype.returnToMenu = function () {
@@ -831,6 +891,19 @@
     if (input && this.cameraRig.isInterior() && (input.lookDeltaX || input.lookDeltaY)) {
       this.cameraRig.look(input.lookDeltaX, input.lookDeltaY, rawDt);
     }
+    // beta 0.3.1: 摇杆苦力帽 (POV) 环视
+    if (input && input.hatLook && this.cameraRig.isInterior() && (input.hatLook.x || input.hatLook.y)) {
+      this.cameraRig.look(input.hatLook.x * 720 * rawDt, input.hatLook.y * 720 * rawDt, rawDt);
+    }
+    // beta 0.3.1: 三维驾驶舱 (驾驶舱视角唯一模式)
+    var use3d = !!(this.cockpit3d && this.cameraRig.isCockpit());
+    this.cameraRig.use3d = use3d;
+    if (this.cockpit3d) {
+      this.cockpit3d.setActive(use3d, this.aircraftModel && this.aircraftModel.group, this.cameraRig,
+        this.cameraRig.mode === 'cockpitR' ? 'R' : 'L');
+      if (use3d) this.cockpit3d.update(rawDt, st, this._displayData(st));
+    }
+    if (use3d !== this._lastUse3d) { this._lastUse3d = use3d; this._applyCockpitUi(); }
     this.cameraRig.update(rawDt, st, input);
 
     /* ================= 音效 ================= */
@@ -953,10 +1026,8 @@
   /* ---------------------------------------------------------------------
      仪表刷新
      --------------------------------------------------------------------- */
-  Sim.prototype._updateDisplays = function (st) {
-    var dpr = Math.min(global.devicePixelRatio || 1, 2);
-    if (this.frame % 2 !== 0) return;         // 30 Hz 刷新仪表, 节省性能
-
+  /** 仪表公共数据 (供 3D 驾驶舱贴图绘制) */
+  Sim.prototype._displayData = function (st) {
     var ilsData = null;
     if (this.ap.ap.ilsIcao && this.ap.ap.ilsRwy) {
       var ils = this.ap._getILS();
@@ -989,31 +1060,22 @@
       vspeeds: this._vspeeds, showVSpeeds: true, showTrack: true,
       navSource: this.ap.ap.rollMode === 'NAV' ? 'GPS' : 'VOR'
     };
+    return common;
+  };
 
-    try {
-      this.pfdL.render(common);
-      if (!this._singlePfd) this.pfdR.render(common);
-      this.ndL.render(common);
-      if (!this._singlePfd) this.ndR.render(common);
-      this.ecamU.render(common);
-      this.ecamL.render(common);
-    } catch (e) {
-      FS.Log.error('仪表渲染错误: ' + e.message);
+  Sim.prototype._updateDisplays = function (st) {
+    // beta 0.3.1+: 已取消 2D 六屏; 仅在 Shift+H 打开时绘制 HUD 平视显示器
+    if (this.frame % 2 !== 0) return;
+    var hcv = this.hudDisplay && this.hudDisplay.canvas;
+    if (this._hudVisible !== true) {
+      if (hcv && this._hudCleared !== true) { this.hudDisplay.ctx.clearRect(0, 0, hcv.width, hcv.height); this._hudCleared = true; }
+      return;
     }
-
-    // HUD
+    this._hudCleared = false;
+    var common = this._displayData(st), ilsData = common.ils;
     if (this.hudDisplay && this.cameraRig.isCockpit()) {
-      try {
-        this.hudDisplay.render({
-          st: st, ils: ilsData,
-          speedBug: this._vspeeds ? this._vspeeds.V2 : undefined,
-          altBug: this.ap.ap.targetAltFt
-        });
-      } catch (e2) { }
-    } else if (this.hudDisplay) {
-      var hc = this.hudDisplay.canvas;
-      this.hudDisplay.ctx.clearRect(0, 0, hc.width, hc.height);
-    }
+      try { this.hudDisplay.render({ st: st, ils: ilsData, speedBug: this._vspeeds ? this._vspeeds.V2 : undefined, altBug: this.ap.ap.targetAltFt }); } catch (e1) { }
+    } else if (hcv) this.hudDisplay.ctx.clearRect(0, 0, hcv.width, hcv.height);
   };
 
   /* ---------------------------------------------------------------------
@@ -1039,6 +1101,9 @@
         if (pi) pi.classList.toggle('hidden', !this.paused);
       }
     }
+    /* --- beta 0.3.1: 看仪表板 (N) --- */
+    if (input.consume('lookPanel')) this.togglePanelView();
+    if (input.consume('lookCenter')) { this.cameraRig.centerLook(); var pvb = global.document.getElementById('panelview-btn'); if (pvb) pvb.classList.remove('on'); }
     /* --- 鼠标驾驶杆 (M) --- */
     if (input.consume('mouseYoke')) {
       input.setMouseYoke(!input.mouseYoke);
@@ -1208,9 +1273,12 @@
       this.hud.notify('时间倍率 ×' + this.timeScale, 'info', 1500);
     }
     if (input.consume('toggleHud')) {
-      this._hudVisible = this._hudVisible === false ? true : false;
+      // beta 0.3.1: 三维驾驶舱中 HUD 默认关闭; Shift+H 显式开 / 关
+      var hudOn = this._hudVisible === true;
+      this._hudVisible = !hudOn;
       var hcv = global.document.getElementById('hud-canvas');
       if (hcv) hcv.style.display = this._hudVisible ? '' : 'none';
+      this.hud.notify('HUD ' + (this._hudVisible ? '开' : '关'), 'info', 1200);
     }
     if (input.consume('screenshot')) {
       this._screenshot();
@@ -1357,6 +1425,10 @@
     if (osEl) osEl.value = FS.CFG.onlineScenery ? '1' : '0';
     var imEl = global.document.getElementById('imagery-select');
     if (imEl) imEl.value = FS.CFG.sceneryImagery;
+
+    // beta 0.3.1: ?view=panel 开场看仪表板 (?simple= 已废弃, 忽略)
+    if (p.simple !== undefined) { /* 已取消 2D 六屏 */ }
+    if (p.view) sim._startView = p.view;
 
     // 只有显式要求时才显示日志面板 (出错时会自动显示)
     if (p.log !== undefined) {

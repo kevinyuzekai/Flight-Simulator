@@ -345,7 +345,7 @@
   Autopilot.prototype.engage = function (which) {
     var ap = this.ap;
     if (this.fm.warnings.stall || this.fm.warnings.overspeed) {
-      this.disconnect('保护限制');
+      this.disengage('保护限制');
       return false;
     }
     ap.engaged = true;

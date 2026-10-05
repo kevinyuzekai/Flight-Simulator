@@ -12,7 +12,7 @@
   /* ---------------------------------------------------------------------
      默认按键映射
      --------------------------------------------------------------------- */
-  // beta 0.3: 默认改为 GeoFS 风格 (仅借鉴按键习惯, 未使用其任何代码/素材)。
+  // beta 0.3: 默认键位 (常见网页飞行模拟的按键习惯)。
   // 组合键写法: 'Shift+KeyF' / 'Ctrl+KeyS' / 'Alt+...'; 单键写法: 'KeyF'。
   // 带修饰键的单键按下时不会触发不带修饰键的"按一下"动作 (例如 Shift+F 只放襟翼, 不收襟翼)。
   var DEFAULT_BINDINGS = {
@@ -73,6 +73,8 @@
     viewFree: ['Digit6'],
     viewFlyby: ['Digit7'],
     mouseYoke: ['KeyM'],                                // 鼠标当驾驶杆 开/关
+    lookPanel: ['KeyN'],                                // beta 0.3.1: 三维驾驶舱 看向仪表板 / 向外看
+    lookCenter: ['Numpad5'],                            // 视线回正
     toggleHud: ['Shift+KeyH'],
     timeScaleUp: ['Shift+KeyT'],
     mute: ['Shift+KeyM'],
@@ -375,6 +377,8 @@
     this.gamepad = gp;
     this.gamepadConnected = !!gp;
     if (joyPads.length && FS.Joystick) this.joy = FS.Joystick.read(joyPads, this);
+    // beta 0.3.1: 摇杆苦力帽 (POV) -> 驾驶舱环视
+    this.hatLook = this.joy && this.joy.hat && (this.joy.hat.x || this.joy.hat.y) ? this.joy.hat : null;
     if (!gp) {
       this.gpAxes[0] = this.gpAxes[1] = this.gpAxes[2] = this.gpAxes[3] = 0;
       this.holdAction('brakes', !!(this.joy && this.joy.held.brakes));

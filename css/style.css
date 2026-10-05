@@ -1877,3 +1877,9 @@ body.show-log #boot-log {
 .about-head { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 14px; line-height: 1.5; }
 .about-head img { border-radius: 22%; }
 #credits-list ul.small { font-size: 11px; margin: 4px 0 8px 18px; padding: 0; }
+
+
+/* beta 0.3.1: 已取消 2D 六屏 / 简化仪表叠加 — 驾驶舱仅三维座舱 */
+#displays { display: none !important; }
+body.cockpit-3d #fcu { display: none; }
+#simple-btn { display: none !important; }

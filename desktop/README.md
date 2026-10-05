@@ -6,7 +6,7 @@ Electron 外壳，把仓库根目录的网页游戏打包进 `app/`，通过自�
 |---|---|
 | `npm install` | 安装 electron 33 / electron-builder 25 / resedit |
 | `npm start` | 本地运行（先执行 `GAME_DIR=.. ./sync-game.sh`）|
-| `GAME_DIR=.. ./build-win.sh` | 生成 NSIS x64 安装包 `dist/SkyRoute-Setup-beta_v0.3-x64.exe`（Linux 上需要 wine）|
+| `GAME_DIR=.. ./build-win.sh` | 生成 NSIS x64 安装包 `dist/SkyRoute-Setup-beta_v0.3.1-x64.exe`（Linux 上需要 wine）|
 | `./build-msix.sh <IdentityName> <Publisher> <PublisherDisplayName> [Version]` | 生成 Microsoft Store 用 MSIX（x64，未签名，商店会签名）|
 
 - `build-msix.sh` 使用 `tools/makemsix`（微软开源 [msix-packaging](https://github.com/microsoft/msix-packaging)，Linux 下 `./makelinux.sh --pack` 编译，

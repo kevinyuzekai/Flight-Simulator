@@ -75,9 +75,23 @@
     this._tmpM = new this.THREE.Matrix4();
 
     this.anchors = {};
+
+    /* beta 0.3.1: 三维驾驶舱 */
+    this.cockpit3d = null;      // FS.Cockpit3D 实例 (由 main.js 设置)
+    this.use3d = false;         // 本帧是否使用三维驾驶舱视点 (main.js 每帧设置)
+    this.panelView = false;     // "看仪表板" 预设 (N 键)
   }
 
   CameraRig.VIEW_LIST = VIEW_LIST;
+
+  CameraRig.prototype.setCockpit3D = function (c) { this.cockpit3d = c || null; };
+  /** 看向仪表板 (低头 + 缩小视场, 保证仪表可读) <-> 恢复向外看 */
+  CameraRig.prototype.togglePanelView = function (on) {
+    this.panelView = on === undefined ? !this.panelView : !!on;
+    this.headYawTarget = this.panelView ? -0.10 : 0;
+    this.headPitchTarget = this.panelView ? -0.36 : 0;
+    return this.panelView;
+  };
 
   /* ---------------------------------------------------------------------
      绑定飞机模型与锚点
@@ -160,6 +174,7 @@
     this._initialized = false;
     this.headYaw = this.headYawTarget = 0;
     this.headPitch = this.headPitchTarget = 0;
+    this.panelView = false;
     if (mode === 'flyby') this._armFlyby();
     FS.Bus.emit('camera:mode', { mode: mode, name: this.getModeName() });
     return true;
@@ -201,6 +216,7 @@
   CameraRig.prototype.centerLook = function () {
     this.headYawTarget = 0;
     this.headPitchTarget = 0;
+    this.panelView = false;
   };
 
   /* ---------------------------------------------------------------------
@@ -261,6 +277,8 @@
         if (this.mode === 'cockpit') anchorName = 'cockpitL';
         var anchor = this.anchors[anchorName];
         if (!anchor) anchor = this.anchors.cockpitL;
+        var cp3 = this.use3d && this.cockpit3d && this.isCockpit();
+        if (cp3) anchor = this.mode === 'cockpitR' ? this.cockpit3d.eyeR : this.cockpit3d.eyeL;
         if (anchor) {
           anchor.getWorldPosition(targetPos);
           anchor.getWorldQuaternion(targetQuat);
@@ -271,7 +289,7 @@
             targetQuat.multiply(hq);
           }
         }
-        fov = this.mode === 'cockpit' || this.mode === 'cockpitR' ? 78 : 70;
+        fov = this.mode === 'cockpit' || this.mode === 'cockpitR' ? (cp3 ? (this.panelView ? 46 : 62) : 78) : 70;
         break;
       }
 
@@ -397,12 +415,15 @@
     /* ---- 视野 (跟随速度/过载) ---- */
     var targetFov = fov;
     if (this.mode !== 'tower' && this.mode !== 'flyby') {
-      targetFov = fov + U.clamp(st.mach * 6, 0, 6) + U.clamp(Math.abs(st.gLoad - 1) * 3, 0, 5);
+      targetFov = this.panelView && this.use3d ? fov : fov + U.clamp(st.mach * 6, 0, 6) + U.clamp(Math.abs(st.gLoad - 1) * 3, 0, 5);
       if (!this.isInterior()) targetFov += U.clamp(st.gsKt / 40, 0, 12);
     }
-    this.fov = U.damp(this.fov, targetFov, 0.35, dt);
-    if (Math.abs(cam.fov - this.fov) > 0.01) {
+    this.fov = U.damp(this.fov, targetFov, this.use3d && this.isCockpit() ? 0.18 : 0.35, dt);
+    // 三维驾驶舱: 近裁剪面缩到 5 cm (对数深度缓冲, 不影响远处精度), 否则侧杆 / 遮光板会被裁掉
+    var wantNear = (this.use3d && this.isCockpit()) ? 0.05 : 0.4;
+    if (Math.abs(cam.fov - this.fov) > 0.01 || cam.near !== wantNear) {
       cam.fov = this.fov;
+      cam.near = wantNear;
       cam.updateProjectionMatrix();
     }
 

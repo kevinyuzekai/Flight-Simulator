@@ -765,10 +765,9 @@
       $('nd-weather').classList.toggle('on', sim.ndL.weatherOn);
     });
 
-    btn('panel-toggle', function () {
-      var p = $('displays');
-      if (p) p.classList.toggle('hidden');
-    });
+    btn('panel-toggle', function () { self.toggleSidePanels(); });
+    // beta 0.3.1: 看仪表板 (已取消简化仪表 / 2D 六屏)
+    btn('panelview-btn', function () { if (sim.togglePanelView) sim.togglePanelView(); });
 
     /* ---- beta 0.3: 视角按钮 (点击/触摸循环, 下拉直接选择) ---- */
     var vsel = $('view-select');
@@ -820,6 +819,18 @@
     });
   };
 
+  /** beta 0.3.1: 侧边面板 (左: 目标 / 检查单, 右: 中央操纵台) 显示 / 隐藏 */
+  HUD.prototype.toggleSidePanels = function (on) {
+    var l = $('left-col'), r = $('right-col');
+    this._sidePanelsUser = true;
+    var anyHidden = (l && l.classList.contains('hidden')) || (r && r.classList.contains('hidden'));
+    var hide = on === undefined ? !anyHidden : !on;
+    if (l) l.classList.toggle('hidden', hide);
+    if (r) r.classList.toggle('hidden', hide);
+    var b = $('panel-toggle'); if (b) b.classList.toggle('on', !hide);
+    return !hide;
+  };
+
   /* ---------------------------------------------------------------------
      键盘快捷 (仅处理 UI 相关)
      --------------------------------------------------------------------- */
@@ -842,9 +853,10 @@
           else if (!self.menuOpen) self.openPause();
           break;
         case 'Tab':
+          // beta 0.3.1: Tab / Shift+Tab = 侧边面板 (检查单 / 操纵台); 已取消简化仪表
           ev.preventDefault();
-          var d = $('displays');
-          if (d) d.classList.toggle('hidden');
+          if (self.menuOpen) break;
+          self.toggleSidePanels();
           break;
         case 'Backquote':
           var u = $('ui');

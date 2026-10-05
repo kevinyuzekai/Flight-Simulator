@@ -160,7 +160,8 @@
         <button id="yoke-btn" class="tb-btn tb-wide" title="鼠标驾驶杆: 光标相对屏幕中心 = 杆量 (M)">🖱 鼠标杆</button>
         <button id="joy-btn" class="tb-btn tb-wide" title="摇杆设置 (Gamepad API)">🕹 摇杆</button>
         <button id="help-btn" class="tb-btn" title="操作说明 (F1 / ?)">?</button>
-        <button id="panel-toggle" class="tb-btn" title="显示/隐藏仪表 (Tab)">▤</button>
+        <button id="panelview-btn" class="tb-btn tb-wide" title="三维驾驶舱: 看向仪表板 / 恢复向外看 (N)">🔍 仪表板</button>
+        <button id="panel-toggle" class="tb-btn on" title="显示/隐藏侧边面板: 检查单 / 中央操纵台 (Shift+Tab)">▤</button>
         <button id="ui-toggle" class="tb-btn" title="隐藏界面 (`)">◻</button>
       </div>
     </div>
@@ -338,7 +339,7 @@
     </div>
 
     <!-- 仪表 -->
-    <div id="displays">
+    <div id="displays" class="hidden" aria-hidden="true">
       <div class="disp-col">
         <div class="disp-label">PFD · 机长</div>
         <canvas id="pfd-left"></canvas>
@@ -427,7 +428,7 @@
 
       <div class="help-grid">
         <div class="help-col">
-          <h3>飞行操纵（GeoFS 风格默认键位）</h3>
+          <h3>飞行操纵（默认键位）</h3>
           <table class="help-table">
             <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>推杆低头 / 拉杆抬头（也可 <kbd>W</kbd>/<kbd>S</kbd>）</td></tr>
             <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>左 / 右横滚（也可 <kbd>A</kbd>/<kbd>D</kbd>）</td></tr>
@@ -470,7 +471,11 @@
             <tr><td><kbd>1</kbd>…<kbd>7</kbd></td><td>驾驶舱 / 机翼 / 追踪 / 塔台 / 环绕 / 自由 / 飞掠</td></tr>
             <tr><td>在画面上拖拽鼠标</td><td>环视（鼠标驾驶杆开启时用右键拖拽）；外部视角滚轮缩放</td></tr>
             <tr><td>触摸</td><td>单指拖动 = 驾驶杆，第二根手指拖动 = 环视</td></tr>
-            <tr><td><kbd>Tab</kbd> / <kbd>`</kbd></td><td>显示/隐藏仪表 / 整个界面</td></tr>
+            <tr><td>驾驶舱视角</td><td>默认三维驾驶舱（机长座位）；拖拽鼠标 / 摇杆苦力帽环视，<kbd>小键盘 5</kbd> 视线回正</td></tr>
+            <tr><td><kbd>N</kbd></td><td>看向仪表板（低头 + 放大，仪表清晰可读）/ 恢复向外看，也可点顶栏 🔍 仪表板</td></tr>
+            <tr><td>点击 FCU / MCP</td><td>三维驾驶舱中可直接点击遮光板上的按钮；旋钮左 / 右半边 = 减 / 加（可按住或用滚轮），上半 = PUSH，下半 = PULL；点击起落架手柄收放</td></tr>
+            <tr><td><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd></td><td>显示 / 隐藏侧边面板（检查单、操纵台）</td></tr>
+            <tr><td><kbd>`</kbd></td><td>显示 / 隐藏整个界面</td></tr>
             <tr><td><kbd>?</kbd> 或 <kbd>F1</kbd></td><td>本说明</td></tr>
             <tr><td><kbd>Esc</kbd></td><td>暂停菜单</td></tr>
             <tr><td><kbd>Shift</kbd>+<kbd>M</kbd> / <kbd>Shift</kbd>+<kbd>H</kbd> / <kbd>Shift</kbd>+<kbd>T</kbd></td><td>静音 / HUD / 时间倍率</td></tr>
@@ -559,6 +564,7 @@
   <script src="js/joystick.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/scenarios.js"></script>
+  <script src="js/cockpit3d.js"></script>
   <script src="js/camera.js"></script>
   <script src="js/input.js"></script>
   <script src="js/hud.js"></script>

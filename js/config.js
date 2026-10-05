@@ -12,7 +12,7 @@
      1. 模拟器全局设置
      --------------------------------------------------------------------- */
   FS.CFG = {
-    version: '0.3.0-beta',
+    version: '0.3.1-beta',
     // beta 0.3: 联网全球地景 (真实高程 + 卫星影像), 菜单 / ?online=0|1 / localStorage 'fs.onlineScenery'
     onlineScenery: (function () {
       try { var v = global.localStorage && global.localStorage.getItem('fs.onlineScenery'); if (v === '0') return false; } catch (e) { /* */ }
@@ -408,7 +408,9 @@
         fuelTanks: ['L Main', 'C', 'R Main'],
         hasHUD: false, autoBrake: ['OFF', '1', '2', '3', 'MAX'], hasTCAS: true, hasEGPWS: true,
         hasWeatherRadar: true, hasAutoLand: true, hasThrustReverser: true, hasSpoilers: 8, hasFlyByWire: false,
-        flyByWire: { envelopeProtection: false, alphaProt: 0, alphaMax: 0, bankLimit: 0, highSpeedProt: false, pitchTrimAuto: false }
+        flyByWire: { envelopeProtection: false, alphaProt: 0, alphaMax: 0, bankLimit: 0, highSpeedProt: false, pitchTrimAuto: false },
+        // beta 0.3.1: 抖杆器 + 失速保护 (波音式: 抖杆 → 升降舵抬头权限逐渐收回 → 推杆器); 不是空客式的迎角指令律
+        stallProtection: { shakerMarginDeg: 3.0, limitMarginDeg: 1.2 }
       },
       lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
       livery: { body: 0xf7f8fa, belly: 0xd0d5db, accent: 0x2e3138, tail: 0x2e3138, stripe: 0x7d848e, engine: 0xdde1e6, wing: 0xe0e3e7, gear: 0x9aa0a6, cockpit: 0x0e1216 }
@@ -460,7 +462,9 @@
         hasHUD: false, autoBrake: ['OFF', '1', '2', '3', 'MAX'], hasTCAS: true, hasEGPWS: true,
         hasWeatherRadar: true, hasAutoLand: true, hasThrustReverser: true, hasSpoilers: 8, hasFlyByWire: false,
         hasMCAS: true, hasWinglets: 'AT',
-        flyByWire: { envelopeProtection: false, alphaProt: 0, alphaMax: 0, bankLimit: 0, highSpeedProt: false, pitchTrimAuto: false }
+        flyByWire: { envelopeProtection: false, alphaProt: 0, alphaMax: 0, bankLimit: 0, highSpeedProt: false, pitchTrimAuto: false },
+        // beta 0.3.1: 抖杆器 + 失速保护 (波音式: 抖杆 → 升降舵抬头权限逐渐收回 → 推杆器); 不是空客式的迎角指令律
+        stallProtection: { shakerMarginDeg: 3.0, limitMarginDeg: 1.2 }
       },
       lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
       livery: { body: 0xf7f8fa, belly: 0xd0d5db, accent: 0x2a6f97, tail: 0x2a6f97, stripe: 0x61c3a0, engine: 0xdde1e6, wing: 0xe0e3e7, gear: 0x9aa0a6, cockpit: 0x0e1216 }
@@ -652,7 +656,9 @@
         fuelTanks: ['L', 'R'],
         hasHUD: false, autoBrake: ['OFF', 'LO', 'MED', 'HI'], hasTCAS: true, hasEGPWS: true,
         hasWeatherRadar: true, hasAutoLand: true, hasThrustReverser: true, hasSpoilers: 6, hasFlyByWire: false,
-        flyByWire: { envelopeProtection: false, alphaProt: 0, alphaMax: 0, bankLimit: 0, highSpeedProt: false, pitchTrimAuto: false }
+        flyByWire: { envelopeProtection: false, alphaProt: 0, alphaMax: 0, bankLimit: 0, highSpeedProt: false, pitchTrimAuto: false },
+        // beta 0.3.1: 抖杆器 + 失速保护 (波音式: 抖杆 → 升降舵抬头权限逐渐收回 → 推杆器); 不是空客式的迎角指令律
+        stallProtection: { shakerMarginDeg: 3.0, limitMarginDeg: 1.2 }
       },
       lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
       livery: { body: 0xf7f8fa, belly: 0xd2d7dd, accent: 0xd8643f, tail: 0xd8643f, stripe: 0xe9a66b, engine: 0xdde1e6, wing: 0xe0e3e7, gear: 0x9aa0a6, cockpit: 0x0e1216 }
@@ -795,7 +801,8 @@
           cl: U.lerp(f[i].cl, f[i + 1].cl, t),
           cd: U.lerp(f[i].cd, f[i + 1].cd, t),
           alphaStall: U.lerp(f[i].alphaStall, f[i + 1].alphaStall, t),
-          vfe: U.lerp(f[i].vfe > 900 ? f[i + 1].vfe : f[i].vfe, f[i + 1].vfe, t),
+          // 襟翼完全收上 (t≈0) 时没有 VFE 限制; 修正 beta 0.3 及以前: 光洁构型 230 kt 以上误报超速主警告
+          vfe: (f[i].vfe > 900 && t < 0.01) ? 999 : U.lerp(f[i].vfe > 900 ? f[i + 1].vfe : f[i].vfe, f[i + 1].vfe, t),
           slat: U.lerp(f[i].slat, f[i + 1].slat, t),
           pitchTrim: U.lerp(f[i].pitchTrim, f[i + 1].pitchTrim, t)
         };

@@ -18,7 +18,8 @@
     { id: 'roll', name: '横滚' },
     { id: 'yaw', name: '方向舵 / 扭转' },
     { id: 'throttle', name: '油门 1 (或全部)' },
-    { id: 'throttle2', name: '油门 2' }
+    { id: 'throttle2', name: '油门 2' },
+    { id: 'hat', name: '苦力帽 POV (驾驶舱环视)' }
   ];
   var BUTTON_FUNCS = [
     { id: 'apDisconnect', name: 'AP 断开', edge: true },
@@ -46,7 +47,8 @@
     var id = (pad && pad.id) || '', n = pad && pad.axes ? pad.axes.length : 0;
     var p = {
       axes: { pitch: { axis: -1, invert: true }, roll: { axis: -1, invert: false }, yaw: { axis: -1, invert: false },
-        throttle: { axis: -1, invert: true }, throttle2: { axis: -1, invert: true } },
+        throttle: { axis: -1, invert: true }, throttle2: { axis: -1, invert: true },
+        hat: { axis: n > 9 ? 9 : -1, invert: false } },
       deadzone: 0.05, sensitivity: 1.0, curve: 1.3,
       buttons: { apDisconnect: -1, ptt: -1, brakes: -1, gearToggle: -1, flapsUp: -1, flapsDown: -1, viewNext: -1, throttleToggleRev: -1 },
       guessed: true
@@ -88,6 +90,7 @@
     profile: function (pad) {
       var p = this.all[pad.id];
       if (!p) { p = defaultProfile(pad); this.all[pad.id] = p; }
+      if (!p.axes.hat) p.axes.hat = { axis: -1, invert: false };     // 旧版本保存的配置没有苦力帽
       return p;
     },
 
@@ -135,6 +138,15 @@
         }
         var t2 = this._axis(pad, A.throttle2, prof, false);
         if (t2 !== null) { out.hasThrottle2 = true; out.throttle2 = (t2 + 1) / 2; }
+        // 苦力帽: Chrome/Edge 把 HID 帽子开关报告为一个轴, 上 = -1, 顺时针每 45° +2/7, 中立 ≈ +1.29
+        if (A.hat && A.hat.axis >= 0 && A.hat.axis < pad.axes.length) {
+          var hv = pad.axes[A.hat.axis];
+          if (hv >= -1.05 && hv <= 1.05) {
+            var hi = Math.round((hv + 1) * 3.5) % 8;
+            var HX = [0, 1, 1, 1, 0, -1, -1, -1], HY = [-1, -1, 0, 1, 1, 1, 0, -1];
+            out.hat = { x: HX[hi] * (A.hat.invert ? -1 : 1), y: HY[hi] };
+          }
+        }
         // 按钮
         for (k = 0; k < BUTTON_FUNCS.length; k++) {
           var f = BUTTON_FUNCS[k], bi = prof.buttons[f.id];

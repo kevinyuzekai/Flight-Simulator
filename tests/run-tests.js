@@ -141,20 +141,22 @@ console.log('\n[3] ILS 自动着陆 (12 nm 起, AP + A/THR + APPR)');
 });
 
 /* ---------- 4. 失速保护 (beta 0.3: 全部电传机型, 光洁 + 着陆构型) ---------- */
-console.log('\n[4] 迎角保护 (所有带包线保护的电传机型, 慢车 + 满拉杆 60 s; 光洁 10000 ft / 着陆构型进近)');
+console.log('\n[4] 迎角/失速保护 (电传包线保护机型 + 737/737 MAX/E190 抖杆推杆保护, 慢车 + 满拉杆 60 s; 光洁 10000 ft / 着陆构型进近)');
 TYPES.forEach(function (type) {
-  var fbw = FS.AIRCRAFT_DB[type].systems.flyByWire;
-  if (!fbw || !fbw.envelopeProtection) return;
+  var fbw = FS.AIRCRAFT_DB[type].systems.flyByWire, spr = FS.AIRCRAFT_DB[type].systems.stallProtection;
+  if ((!fbw || !fbw.envelopeProtection) && !spr) return;
   ['clean', 'land'].forEach(function (cfg) {
-    test('迎角保护 ' + type + ' ' + (cfg === 'clean' ? '光洁' : '着陆构型'), function () {
+    test((spr ? '失速保护 (抖杆+推杆) ' : '迎角保护 ') + type + ' ' + (cfg === 'clean' ? '光洁' : '着陆构型'), function () {
       var s = makeFm(type, 'ZSPD'); var a = s.apt;
       if (cfg === 'clean') s.fm.setupForCruise(a.lat, a.lon, 10000, 90, 0.5);
       else { s.fm.setupForApproach('ZSPD', '17L', 12); s.fm.ap.apprArmed = s.fm.ap.locArmed = s.fm.ap.gsArmed = false; }
       s.fm.setThrottle('all', 0);
       var maxA = -1e9, stallA = 1e9;
-      run(s, 60, function (st) { finite(st); s.fm.setPilotInput(1, 0, 0); maxA = Math.max(maxA, st.alphaDeg); stallA = Math.min(stallA, st.stallAngleDeg); });
+      var shaker = false, stallW = false;
+      run(s, 60, function (st) { finite(st); s.fm.setPilotInput(1, 0, 0); maxA = Math.max(maxA, st.alphaDeg); stallA = Math.min(stallA, st.stallAngleDeg); if (st.stickShaker) shaker = true; if (st.stallWarning) stallW = true; });
       assert(maxA < stallA, '迎角 ' + maxA.toFixed(1) + '° 超过失速迎角 ' + stallA.toFixed(1) + '°');
-      return '最大迎角 ' + maxA.toFixed(1) + '° < 失速迎角 ' + stallA.toFixed(1) + '°';
+      if (spr) assert(shaker, '抖杆器未触发');
+      return '最大迎角 ' + maxA.toFixed(1) + '° < 失速迎角 ' + stallA.toFixed(1) + '°' + (spr ? ', 抖杆器已触发' + (stallW ? ', 失速告警出现过' : '') : '');
     });
   });
 });
@@ -197,6 +199,25 @@ test('index.html 引用的脚本全部存在 (离线 / file://)', function () {
   srcs.forEach(function (s) { assert(!/^https?:/.test(s), '外部脚本: ' + s); assert(fs.existsSync(path.join(ROOT, s)), '缺少文件: ' + s); });
   assert(!/https?:\/\/[^"']+\.(glb|gltf|jpg|png)/.test(html), '引用了外部资源');
   return srcs.length + ' 个脚本均为本地文件';
+});
+
+/* ---------- 6. 三维驾驶舱 (beta 0.3.1) ---------- */
+console.log('\n[6] 三维驾驶舱布局 (beta 0.3.1)');
+test('cockpit3d.js: 11 种机型均有布局 (空客侧杆 / 波音驾驶盘, C919 → 空客, E190 → 波音)', function () {
+  var cctx = { FS: FS, console: { log: function () {} } }; cctx.window = cctx; vm.createContext(cctx);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/cockpit3d.js'), 'utf8'), cctx, { filename: 'cockpit3d.js' });
+  var C = FS.Cockpit3D; assert(C && C.layoutFor, 'FS.Cockpit3D 未定义');
+  var out = [];
+  TYPES.forEach(function (t) {
+    var L = C.layoutFor(t), ac = FS.AIRCRAFT_DB[t];
+    assert(C.TYPE_LAYOUT[t], '缺少布局: ' + t);
+    var expect = /Airbus|COMAC/.test(ac.manufacturer || '') ? 'airbus' : 'boeing';
+    if (t === 'C919') expect = 'airbus';
+    assert(L.maker === expect, t + ' 布局 ' + L.maker + ', 期望 ' + expect);
+    assert(L.du >= 0.15 && L.du <= 0.24, t + ' 显示器尺寸不合理 ' + L.du + ' m');
+    out.push(t + ':' + L.maker[0].toUpperCase() + ' ' + Math.round(L.du * 1000) + 'mm');
+  });
+  return out.join(', ');
 });
 
 var pass = results.filter(function (r) { return r.ok; }).length;

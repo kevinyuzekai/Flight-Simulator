@@ -821,6 +821,43 @@
       if (this.trimInput) {
         s.elevatorTrim = U.clamp(s.elevatorTrim - this.trimInput * 0.22 * dt, -1, 1);
       }
+      this._applyStallProtection(dt, groundMode);
+    }
+  };
+
+  /**
+   * beta 0.3.1: 非包线保护机型 (737-800 / 737 MAX 8 / E190) 的失速保护, 波音式:
+   *   预测迎角 > 失速迎角 - shakerMargin  → 抖杆器 (stickShaker, 告警 + 驾驶舱杆抖动)
+   *   继续增大 → 升降舵抬头权限线性收回 (类似"感觉力"增大), 到 失速迎角 - limitMargin 时为 0
+   *   超过 limitMargin → 推杆器给低头舵, 并把抬头配平回收
+   * 飞行员仍可推杆低头; 地面 (低速主轮承重) 不起作用。
+   */
+  FlightModel.prototype._applyStallProtection = function (dt, groundMode) {
+    var sp = this.ac.systems.stallProtection, s = this.surfaces;
+    if (!sp || groundMode) { this.stickShaker = false; this._spPrevAlpha = undefined; return; }
+    var aSt = ((this.flapData || {}).alphaStall || 0) * C.DEG;
+    if (!(aSt > 0) || !isFinite(this.alpha)) { this.stickShaker = false; return; }
+    var rate = this._spPrevAlpha !== undefined && dt > 0 ? (this.alpha - this._spPrevAlpha) / dt : 0;
+    this._spPrevAlpha = this.alpha;
+    this._spRateF = U.damp(this._spRateF || 0, U.clamp(rate, -0.5, 0.5), 0.05, dt);
+    var aPred = this.alpha + U.clamp(this._spRateF, -0.2, 0.2) * 0.9;
+    var aShaker = aSt - sp.shakerMarginDeg * C.DEG, aLim = aSt - sp.limitMarginDeg * C.DEG;
+    // 抖杆器 (带 0.5° 迟滞)
+    var shake = this.stickShaker ? aPred > aShaker - 0.5 * C.DEG : aPred > aShaker;
+    if (shake !== !!this.stickShaker) { this.stickShaker = shake; if (FS.Bus) FS.Bus.emit('warning:stickShaker', shake); }
+    // 包线保护的另外两项: 过载 (2.5 g) 与俯仰姿态 (25° 起收回, 30° 为 0), 防止满拉杆跃升后尾冲失速
+    var fG = U.clamp01((this.gLoad - 2.1) / 0.4);
+    var fP = U.clamp01((this.pitch * C.RAD - 25) / 5);
+    var fA = aPred > aShaker ? U.clamp01((aPred - aShaker) / Math.max(0.001, aLim - aShaker)) : 0;
+    var f = Math.max(fA, fG, fP);
+    if (f <= 0) return;
+    // 升降舵约定: 负值 = 抬头。抬头权限随迎角 / 过载 / 姿态收回
+    var minElev = U.lerp(-1, 0.05, f);
+    if (s.elevator < minElev) s.elevator = minElev;
+    if (aPred > aLim) {
+      // 推杆器
+      s.elevator = Math.max(s.elevator, U.clamp((aPred - aLim) * 24 + 0.08, 0, 0.9));
+      if (s.elevatorTrim < 0) s.elevatorTrim = U.moveTowards(s.elevatorTrim, 0, 0.3 * dt);
     }
   };
 
@@ -1793,6 +1830,7 @@
       steering: this.steerAngle, wheelSpin: this.wheelSpin,
       onGroundAny: this.onGround,
       stallWarning: this.warnings.stall,
+      stickShaker: !!this.stickShaker,
       overspeed: this.warnings.overspeed,
       machOverspeed: this.warnings.machOverspeed,
       configWarning: this.warnings.configWarning,
