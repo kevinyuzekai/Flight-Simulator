@@ -8,7 +8,7 @@
 包含 11 种民航机型、77 个真实机场、10 个飞行场景和完整的玻璃座舱航电。
 
 不需要安装任何东西，不需要构建，**离线即可完整游玩**；联网时可选加载全球真实卫星影像与地形（beta 0.3）。
-Windows 用户也可以下载安装版（见 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)）。
+Windows 用户可下载**便携版 zip**（见 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)）；商店用 MSIX。本版 **无 NSIS Setup.exe**（旧版「如有 Setup」可安装）。
 
 ![主菜单](screenshots/01-主菜单.png)
 
@@ -124,12 +124,12 @@ Windows 用户也可以下载安装版（见 [Releases](https://github.com/kevin
 ![A321neo 起飞](screenshots/10-A321neo-起飞.png)
 ![航行灯（A350-900 左翼尖，黄昏）](screenshots/11-航行灯-A350-左翼尖.png)
 
-**Windows 安装版**
+**Windows 桌面版**
 
-- Release 中提供 Windows 免安装便携版（`SkyRoute-Windows-portable-beta_v0.4-x64.zip`，解压后运行 `天际航线.exe`）；部分版本另附 NSIS 安装程序 `SkyRoute-Setup-beta_v*-x64.exe`
+- Release 中提供 Windows **免安装便携版**（`SkyRoute-Windows-portable-beta_v0.4-x64.zip`，解压后运行 `天际航线.exe`）。**beta 0.4 无 NSIS Setup.exe**；个别旧版本「如有 Setup」才有安装程序
 - 游戏通过内置的 `app://skyroute` 协议本地加载，联网地景、摇杆都可正常使用；`F11` 全屏
-- 安装包**未进行代码签名**，首次运行时 Windows SmartScreen 可能提示「已保护你的电脑」，点「更多信息 → 仍要运行」即可
-- 同时准备了 Microsoft Store 用的 MSIX 包（尚未上架）
+- 便携版**未进行代码签名**，首次运行时 Windows SmartScreen 可能提示「已保护你的电脑」，点「更多信息 → 仍要运行」即可
+- Microsoft Store 用 MSIX 包（Partner Center 提交；商店页可能滞后于 GitHub）
 
 **测试**
 
@@ -202,7 +202,7 @@ Windows 用户也可以下载安装版（见 [Releases](https://github.com/kevin
 
 ## 快速开始
 
-**Windows：** 下载 Release 中的便携版 `SkyRoute-Windows-portable-beta_v0.4-x64.zip` 解压运行（或安装程序，如有；均未签名，SmartScreen 提示时选「仍要运行」）
+**Windows：** 下载 Release 中的便携版 `SkyRoute-Windows-portable-beta_v0.4-x64.zip` 解压运行（**本版无 Setup.exe**；旧版「如有 Setup」才可安装。未签名，SmartScreen 提示时选「仍要运行」。商店用 MSIX）
 
 **macOS：** 双击 `启动游戏.command`
 
@@ -578,7 +578,7 @@ index.html?aircraft=A350-900&scenario=ils-approach&dep=ZSPD&rwy=17R&weather=stor
 先按一下摇杆上的任意按钮（Chrome / Edge 的要求），再打开「摇杆设置」检查轴映射。
 
 **Windows 提示「已保护你的电脑」**
-安装包没有代码签名证书，点「更多信息 → 仍要运行」即可。
+便携版 / 安装程序（如有 Setup）没有代码签名证书，点「更多信息 → 仍要运行」即可。
 
 **没有声音**
 浏览器要求先有一次用户点击才允许播放音频。点「开始飞行」后就会有声音。
