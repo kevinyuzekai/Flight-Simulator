@@ -59,6 +59,7 @@
     }
     html += '<p class="muted">瓦片请求有并发与速率限制, 并利用浏览器缓存; 关闭"联网地景"或离线时自动使用内置程序化地形, 游戏完全可离线运行。</p>';
     html += '<h3>第三方代码</h3><p class="muted">three.js r149 — MIT License — ' + link('https://github.com/mrdoob/three.js') + '</p>';
+    html += '<h3>立体机场</h3><p class="muted">beta 0.3.2：航站楼 / 塔台 / 廊桥 / 停机坪 / 滑行道为程序化生成；' +'主要枢纽（浦东、首都、白云、香港、成田、樟宜、迪拜、希思罗、肯尼迪、洛杉矶等）内置真实布局。' +'开启联网地景时可能从 OpenStreetMap (ODbL) 补充滑行道，失败则回退内置布局。</p>';
     html += '<h3>说明</h3><p class="muted">所有模型均以 JavaScript 形式内嵌在 models/ 目录中，无需联网，可直接用 file:// 打开。' +
       '模型的修改内容 (坐标转换、缩放、机身加长、涂装重绘等) 详见 ASSETS_LICENSES.md。' +
       '涂装菜单中的配色方案均为通用名称，不模仿任何真实航空公司，不包含标志或商标；空中交通的呼号均为虚构。</p>';

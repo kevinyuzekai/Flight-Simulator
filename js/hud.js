@@ -105,10 +105,11 @@
           '<div class="ac-engine">' + db.engines.count + ' × ' + db.engines.model + '</div>' +
           '<div class="ac-class">' + (ac.class === 'widebody' ? '宽体客机' :
             ac.class === 'narrowbody' ? '窄体客机' : '支线客机') + '</div>' +
-          (function () {   // beta 0.2: 标注 3D 模型来源
-            var as = FS.ModelAssets && FS.ModelAssets[ac.key];
+          (function () {   // beta 0.2/0.3.2: 标注 3D 模型来源
+            var as = (FS.Aircraft3D && FS.Aircraft3D.assetFor) ? FS.Aircraft3D.assetFor(ac.key) : (FS.ModelAssets && FS.ModelAssets[ac.key]);
             if (!as) return '<div class="ac-model ac-model-proc">程序化模型</div>';
-            return '<div class="ac-model ac-model-real">' + (as.derived ? '真实模型 · 派生' : '真实模型') + '</div>';
+            var label = as.hybrid ? '真实模型 · 近似' : (as.derived ? '真实模型 · 派生' : '真实模型');
+            return '<div class="ac-model ac-model-real">' + label + '</div>';
           })();
         card.addEventListener('click', function () {
           self.selected.aircraft = ac.key;

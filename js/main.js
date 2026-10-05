@@ -104,6 +104,7 @@
     this.camera.position.set(0, 60, 200);
 
     this.cameraRig = new FS.CameraRig(this.camera, {});
+    this.cameraRig.sim = this;
     this.cameraRig.setMode('chase');
 
     // 环境 (地形/天空/天气)
@@ -328,6 +329,40 @@
       }
     } catch (e) { FS.Log.warn('跑道道面生成失败: ' + e.message); }
 
+    /* ---- beta 0.3.2: 立体机场 (停机坪/滑行道/航站楼/廊桥/塔台) ---- */
+    this.airport3dGroups = [];
+    this.towerByIcao = {};
+    try {
+      if (FS.Airport3D) {
+        var a3 = FS.Airport3D.nearbyBuild(THREE, this.env, 250, [dep, opts.arrIcao ? FS.Airports.byIcao(opts.arrIcao) : null]);
+        this.airport3dGroups = a3.groups || [];
+        this.towerByIcao = a3.towerByIcao || {};
+        for (var ai = 0; ai < this.airport3dGroups.length; ai++) this.scene.add(this.airport3dGroups[ai]);
+        var nDet = 0;
+        for (var aj = 0; aj < this.airport3dGroups.length; aj++) if (this.airport3dGroups[aj].userData.detailed) nDet++;
+        FS.Log.info('立体机场: 已生成 ' + this.airport3dGroups.length + ' 座 (其中 ' + nDet + ' 座为真实布局)');
+        // 联网时对出发/到达机场尝试 OSM 补充滑行道
+        if (FS.CFG.onlineScenery && opts.online !== false) {
+          var selfOsm = this;
+          [dep, opts.arrIcao ? FS.Airports.byIcao(opts.arrIcao) : null].forEach(function (apOsm) {
+            if (!apOsm) return;
+            var grp = null;
+            for (var gi = 0; gi < selfOsm.airport3dGroups.length; gi++) {
+              if (selfOsm.airport3dGroups[gi].userData.airport && selfOsm.airport3dGroups[gi].userData.airport.icao === apOsm.icao) {
+                grp = selfOsm.airport3dGroups[gi]; break;
+              }
+            }
+            if (!grp) return;
+            FS.Airport3D.fetchOsmLayout(apOsm, function (data) {
+              if (!data || !grp.parent) return;
+              var n = FS.Airport3D.applyOsmExtras(THREE, selfOsm.env, apOsm, grp, data);
+              if (n > 0) FS.Log.info('OSM 补充 ' + apOsm.icao + ': +' + n + ' 段滑行道/停机坪');
+            });
+          });
+        }
+      }
+    } catch (e3) { FS.Log.warn('立体机场生成失败: ' + e3.message); }
+
     /* ---- beta 0.3: 联网全球地景 (失败/离线时自动保持内置地形) ---- */
     this.scenery = null;
     if (FS.CFG.onlineScenery && FS.OnlineScenery && opts.online !== false) {
@@ -515,6 +550,14 @@
         if (this.runwayGroups[gi].userData.dispose) this.runwayGroups[gi].userData.dispose();
       }
       this.runwayGroups = null;
+    }
+    if (this.airport3dGroups) {
+      for (var a3i = 0; a3i < this.airport3dGroups.length; a3i++) {
+        this.scene.remove(this.airport3dGroups[a3i]);
+        if (this.airport3dGroups[a3i].userData.dispose) this.airport3dGroups[a3i].userData.dispose();
+      }
+      this.airport3dGroups = null;
+      this.towerByIcao = null;
     }
     this.env.clearFlattenZones && this.env.clearFlattenZones();
   };

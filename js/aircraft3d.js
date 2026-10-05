@@ -112,7 +112,21 @@
   function assetFor(typeKey) {
     if (FS.CFG && FS.CFG.proceduralModels) return null;          // 全局开关: 强制程序化
     var A = FS.ModelAssets;
-    return (A && A[typeKey]) ? A[typeKey] : null;
+    if (A && A[typeKey]) return A[typeKey];
+    // beta 0.3.2: 无独立模型时, 用相近机型真实外形作基底 (中性涂装, 标注 hybrid)
+    var ALIAS = {
+      'B737-MAX8': 'B737-800'   // MAX 外形接近 NG; 发动机/小翼仍由程序化部件区分不足时仅外形近似
+    };
+    var base = ALIAS[typeKey];
+    if (base && A && A[base]) {
+      var src = A[base];
+      return {
+        body: src.body, fans: src.fans, plug: src.plug, triangles: src.triangles,
+        source: src.source, derived: true, hybrid: true, hybridOf: base,
+        credit: src.credit
+      };
+    }
+    return null;
   }
 
   function b64ToBuffer(str) {
@@ -911,8 +925,9 @@
     function buildAssetBody() {
       var tex = assetTexture(asset.texId, lv);
       var matSkin = new THREE.MeshStandardMaterial({
-        color: tex ? 0xffffff : lv.body, map: tex,
-        metalness: 0.22, roughness: 0.40, side: THREE.FrontSide
+        map: skinMap, color: 0xffffff,
+        metalness: 0.28, roughness: 0.32, side: THREE.FrontSide,
+        envMapIntensity: 1.15
       });
       mats.push(matSkin);
       var body = new THREE.Mesh(geoFromPacked(asset.body), matSkin);
@@ -2176,7 +2191,8 @@
         opts.asset = asset;
         var hA = buildAircraft(ac, opts, { tex: null });
         FS.Log.info('Aircraft3D: 已构建 ' + ac.key + ' (真实外形模型 ' + asset.source +
-          (asset.derived ? ', 加长派生' : '') + ', ' + asset.triangles + ' 三角面, ' + asset.credit.license + ')');
+          (asset.hybrid ? ', 近似改装' : (asset.derived ? ', 加长派生' : '')) +
+          ', ' + asset.triangles + ' 三角面, ' + asset.credit.license + ')');
         return hA;
       }
 

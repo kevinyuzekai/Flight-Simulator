@@ -342,9 +342,13 @@
           ap = near && near.airport;
         }
         var tx, ty, tz;
-        if (ap) {
+        // beta 0.3.2: 优先使用立体机场中的真实塔台位置
+        var tp = (ap && this.sim && this.sim.towerByIcao) ? this.sim.towerByIcao[ap.icao] : null;
+        if (tp) {
+          tx = tp.x; ty = tp.y; tz = tp.z;
+        } else if (ap) {
           var w = FS.Geo.toWorld(ap.lat, ap.lon);
-          tx = w.x; tz = w.z; ty = ap.elevFt * C.FT + 45;
+          tx = w.x; tz = w.z; ty = ap.elevFt * C.FT + 55;
         } else {
           tx = st.pos.x - 1500; ty = st.pos.y + 60; tz = st.pos.z - 1500;
         }
