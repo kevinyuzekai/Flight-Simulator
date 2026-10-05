@@ -21,6 +21,9 @@
      · 默认三维驾驶舱 (外部模型隐藏, 仪表贴图刷新), N 看仪表板; 已取消简化仪表 / 2D 六屏
      · 鼠标点击三维 FCU 上的 AP1 接通自动驾驶; 油门杆 / 侧杆 / 驾驶盘随输入移动
      · 737 持续满拉杆: 抖杆触发, 迎角不超过失速迎角
+   beta 0.4.2 新增:
+     · 三维可操作开关: 灯光 / APU / 发动机主电门 / 停留刹车 / 自动刹车 / 襟翼双向 /
+       减速板分档与预位 / 推力手柄拖动; FCU 旋钮修复; EFIS FD 可点; 红色 AP 断开按钮
    ========================================================================== */
 'use strict';
 var path = require('path');
@@ -306,6 +309,45 @@ var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A321neo', 'A330-300', 'B737-80
     if (lv.d < 20) throw new Error('油门杆未随推力移动 (' + lv.d.toFixed(1) + '°)');
     if (Math.abs(lv.sx) < 0.1 || Math.abs(lv.sz) < 0.1) throw new Error('侧杆未随输入偏转 ' + JSON.stringify(lv));
     return 'AP1 在画面 (' + loc.x.toFixed(0) + ', ' + loc.y.toFixed(0) + ') 处点击后接通; 油门杆行程 ' + lv.d.toFixed(0) + '°; 侧杆偏转 ' + lv.sx.toFixed(2) + ' / ' + lv.sz.toFixed(2) + ' rad';
+  });
+
+  await job('0.4.2 三维驾驶舱可操作开关 (灯光 / APU / 主电门 / 停留刹车 / 自动刹车 / 襟翼 / 减速板 / 推力拖动 / FCU 旋钮)', 'aircraft=A320neo&scenario=cold-dark&dep=ZGGG&autostart=1&online=0', async function (page) {
+    await started(page);
+    var r = await page.evaluate(function () {
+      var sim = FS.sim, c = sim.cockpit3d, fm = sim.fm, out = [];
+      function ctl(id) { var e = c.ctlById[id]; if (!e) throw new Error('缺少控件 ' + id); return e.ctl; }
+      var need = ['gear', 'throttle1', 'throttle2', 'flap', 'speedbrake', 'apu', 'eng-master-1', 'eng-master-2', 'park-brake', 'autobrake',
+        'light-landing', 'light-taxi', 'light-strobe', 'light-beacon', 'light-nav', 'light-logo', 'light-wing', 'light-cabin', 'sidestick-ap-disc-L'];
+      need.forEach(ctl);
+      var l0 = !!sim.lights.landing; ctl('light-landing').click(1); if (!!sim.lights.landing === l0) throw new Error('着陆灯开关无效');
+      var pb0 = !!fm.parkingBrake; ctl('park-brake').click(1); if (!!fm.parkingBrake === pb0) throw new Error('停留刹车旋钮无效');
+      if (document.getElementById('park-brake').classList.contains('on') !== !!fm.parkingBrake) throw new Error('停留刹车侧边面板未同步');
+      ctl('apu').click(1); if (!fm.apuRunning) throw new Error('APU 按钮无效');
+      ctl('eng-master-1').click(1); if (fm.engines[0].state === 'off') throw new Error('发动机主电门 1 无效');
+      var ab0 = fm.autoBrake; ctl('autobrake').click(1); if (fm.autoBrake === ab0) throw new Error('自动刹车旋钮无效');
+      fm.setFlapDetent(0); ctl('flap').click(1); if (fm.flapDetentIndex !== 1) throw new Error('襟翼手柄放下无效');
+      ctl('flap').click(-1); if (fm.flapDetentIndex !== 0) throw new Error('襟翼手柄右键收上无效');
+      ctl('speedbrake').wheel(-1); if (!(fm.spoilerCmd > 0.4 && fm.spoilerCmd < 0.6)) throw new Error('减速板滚轮半程无效 ' + fm.spoilerCmd);
+      var arm0 = !!fm.spoilerArmedLanding; ctl('speedbrake').click(-1); if (!!fm.spoilerArmedLanding === arm0) throw new Error('地面扰流板预位无效');
+      sim.ap.ap.athr = false; fm.setThrottle('all', 0); sim.input.setThrottle(0);
+      var t = ctl('throttle1'); t.drag.begin(); t.drag.move(0.16);
+      if (Math.abs(fm.throttle[0] - 0.5) > 0.05 || Math.abs(fm.throttle[1] - fm.throttle[0]) > 1e-6) throw new Error('推力手柄拖动无效 ' + fm.throttle);
+      var f = sim.hud._fcu, h0 = f.hdg, a0 = f.alt;
+      sim.hud._knobAdjust('fcu-hdg-inc', 1); sim.hud._knobAdjust('fcu-alt-inc', 1);
+      if (f.hdg === h0 || f.alt === a0) throw new Error('FCU 旋钮不起作用 (fcu-*-inc)');
+      var fd0 = !!sim.ap.ap.fd1; c.perform({ act: { click: 'efis-fd' } }); if (!!sim.ap.ap.fd1 === fd0) throw new Error('EFIS FD 按钮无效');
+      // 动画: 主电门拨杆随发动机状态转动
+      for (var i = 0; i < 30; i++) c.update(0.05, fm.getState(), null);
+      return c.listControls();
+    });
+    // 真实鼠标: 抬头点击头顶板 STROBE 开关
+    var f0 = await page.evaluate(function () { var r = FS.sim.cameraRig; r.panelView = false; r.headYaw = r.headYawTarget = 0; r.headPitch = r.headPitchTarget = 0.75; return FS.sim.renderer.info.render.frame; });
+    await page.waitForFunction(function (f0) { return FS.sim.renderer.info.render.frame >= f0 + 3; }, { timeout: 30000 }, f0);
+    var loc = await page.evaluate(function () { var l = FS.sim.cockpit3d.locateCtl('light-strobe', FS.sim.camera); return { x: (l.x + 1) / 2 * innerWidth, y: (1 - l.y) / 2 * innerHeight, s0: !!FS.sim.lights.strobe }; });
+    await page.mouse.click(loc.x, loc.y); await sleep(500);
+    var s1 = await page.evaluate(function () { return !!FS.sim.lights.strobe; });
+    if (s1 === loc.s0) throw new Error('鼠标点击头顶板 STROBE 开关无效 (' + loc.x.toFixed(0) + ', ' + loc.y.toFixed(0) + ')');
+    return r.meshControls.length + ' 个三维控件 + ' + r.canvasHotspots + ' 个 FCU/EFIS 热区; 全部动作有效; 鼠标点击 STROBE (' + loc.x.toFixed(0) + ', ' + loc.y.toFixed(0) + ') 生效';
   });
 
   await job('B737-800 驾驶盘 + 抖杆失速保护', 'aircraft=B737-800&scenario=cruise&autostart=1&online=0', async function (page) {

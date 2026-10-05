@@ -213,7 +213,32 @@ test('index.html 引用的脚本全部存在 (离线 / file://)', function () {
 });
 
 /* ---------- 6. 三维驾驶舱 (beta 0.3.1) ---------- */
-console.log('\n[6] 三维驾驶舱布局 (beta 0.3.1)');
+console.log('\n[6] 三维驾驶舱布局 (beta 0.4.2)');
+test('hud FCU 旋钮: fcu-*-inc 匹配已修好 (indexOf >= 0), 二维 / 三维共用', function () {
+  var src = fs.readFileSync(path.join(ROOT, 'js/hud.js'), 'utf8');
+  var m = src.match(/HUD\.prototype\._knobAdjust = function[\s\S]*?\n  \};/);
+  assert(m, '_knobAdjust 定义找不到');
+  assert(m[0].indexOf("id.indexOf('spd') >= 0") >= 0, "spd 匹配应为 >= 0");
+  assert(m[0].indexOf("id.indexOf('hdg') >= 0") >= 0, "hdg 匹配应为 >= 0");
+  assert(m[0].indexOf("id.indexOf('alt') >= 0") >= 0, "alt 匹配应为 >= 0");
+  assert(m[0].indexOf("id.indexOf('vs') >= 0") >= 0, "vs 匹配应为 >= 0");
+  assert(m[0].indexOf("id.indexOf('spd') === 0") < 0, '仍残留 spd === 0');
+  var U = { clamp: function (v, a, b) { return v < a ? a : v > b ? b : v; }, wrap360: function (d) { d %= 360; return d < 0 ? d + 360 : d; } };
+  var hud = { _fcu: { spd: 250, hdg: 10, alt: 5000, vs: 0, mach: 0.78, spdIsMach: false, altStep: 100 },
+    sim: { ap: { ap: { engaged: false } } }, _updateFCUDisplay: function () {} };
+  var body = m[0].replace(/^HUD\.prototype\._knobAdjust = function/, 'function').replace(/;\s*$/, '');
+  var kn = new Function('U', 'return (' + body + ');')(U);
+  kn.call(hud, 'fcu-spd-inc', 1);
+  kn.call(hud, 'fcu-hdg-inc', 1);
+  kn.call(hud, 'fcu-alt-inc', 1);
+  kn.call(hud, 'fcu-vs-inc', 1);
+  assert(hud._fcu.spd === 251, 'spd');
+  assert(hud._fcu.hdg === 11, 'hdg');
+  assert(hud._fcu.alt === 5100, 'alt');
+  assert(hud._fcu.vs === 100, 'vs');
+  return 'fcu-*-inc → spd 251 / hdg 011 / alt 5100 / vs +100';
+});
+
 test('cockpit3d.js: 11 种机型均有布局 (空客侧杆 / 波音驾驶盘, C919 → 空客, E190 → 波音)', function () {
   var cctx = { FS: FS, console: { log: function () {} } }; cctx.window = cctx; vm.createContext(cctx);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/cockpit3d.js'), 'utf8'), cctx, { filename: 'cockpit3d.js' });
@@ -229,6 +254,27 @@ test('cockpit3d.js: 11 种机型均有布局 (空客侧杆 / 波音驾驶盘, C9
     out.push(t + ':' + L.maker[0].toUpperCase() + ' ' + Math.round(L.du * 1000) + 'mm');
   });
   return out.join(', ');
+});
+
+test('cockpit3d.js beta 0.4.2: 可操作控件 id / 交互 API 齐全', function () {
+  var src = fs.readFileSync(path.join(ROOT, 'js/cockpit3d.js'), 'utf8');
+  assert(src.indexOf('beta 0.4.2') >= 0, '文件头应标 beta 0.4.2');
+  assert(src.indexOf("id: 'light-'") >= 0, 'light-* 拼接');
+  assert(src.indexOf("id: 'eng-master-'") >= 0, 'eng-master-* 拼接');
+  assert(src.indexOf("id: 'throttle'") >= 0, 'throttle* 拼接');
+  ['gear', 'flap', 'speedbrake', 'apu', 'park-brake', 'autobrake'].forEach(function (id) {
+    assert(src.indexOf("id: '" + id + "'") >= 0, '缺少控件 id: ' + id);
+  });
+  assert(src.indexOf("sidestick-ap-disc-") >= 0 && src.indexOf("yoke-ap-disc-") >= 0, 'AP 断开按钮 id');
+  assert(src.indexOf('P._apDiscCtl') >= 0, '_apDiscCtl');
+  ['P._buildSwitchPanels', 'P._updateSwitches', 'P._hitbox', 'P._ctl', 'P._toggle', 'P._pushBtn', 'P._rotary',
+    'P._throttleCtl', 'P._apDiscCtl', 'P._stepSpoiler', 'P._clickSpoilerArm', 'P._toggleFD', 'P.locateCtl', 'P.listControls',
+    "a.click === 'efis-fd'", 'bindInteraction'].forEach(function (k) {
+    assert(src.indexOf(k) >= 0, '缺少: ' + k);
+  });
+  assert(src.indexOf('hit.ctl.drag') >= 0, '应支持拖动');
+  assert(src.indexOf('ev.button === 2') >= 0, '应支持右键反向');
+  return '灯光8 + APU + 主电门2 + 停留刹车 + 自动刹车 + 起落架/襟翼/减速板/推力 + AP断开 + EFIS FD';
 });
 
 /* ---------- 7. 自动驾驶手感 (beta 0.4) ---------- */

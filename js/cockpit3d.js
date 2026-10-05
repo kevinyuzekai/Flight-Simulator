@@ -1,10 +1,13 @@
 /* ==========================================================================
-   天际航线 SkyRoute — 三维驾驶舱 (cockpit3d.js, beta 0.3.1)
+   天际航线 SkyRoute — 三维驾驶舱 (cockpit3d.js, beta 0.4.2)
    --------------------------------------------------------------------------
    · 机长座位第一人称视角: 风挡 / 窗框 / 立柱, 遮光板, FCU (空客) / MCP (波音),
      EFIS 控制板, 主仪表板上按真实尺寸放置的 PFD / ND / ECAM(EICAS) / 系统页,
-     中央操纵台 (MCDU, 会随推力移动的油门杆, 襟翼 / 减速板手柄),
-     空客侧杆 / 波音驾驶盘 (随输入移动, 737/MAX/E190 抖杆时会抖动), 头顶板示意。
+     中央操纵台 (MCDU, 可拖动的推力手柄, 襟翼 / 减速板手柄, 发动机主电门, 停留刹车),
+     空客侧杆 / 波音驾驶盘 (随输入移动, 737/MAX/E190 抖杆时会抖动; 红色 AP 断开按钮可点),
+     头顶板外部灯光拨杆 + APU 按钮 (其余区域仍为示意贴图)。
+   · 交互: 左键 = 正向, 右键 / Shift+左键 = 反向; 按住拖动推力 / 襟翼 / 减速板;
+     滚轮转 FCU 旋钮与手柄; 悬停显示手形光标与控件名称。
    · 全部为本项目自制的程序化几何体与 Canvas 贴图, 不含任何厂商标志。
    · 驾驶舱视角唯一模式: 已取消旧版 2D 六屏 / 简化仪表叠加。
    · 性能: 仪表贴图约 18 Hz 刷新 (机长 / 副驾两侧共用同一组贴图),
@@ -72,6 +75,8 @@
     this._geoms = [];
     this._texs = [];
     this.clickables = [];
+    this.controls = [];      // beta 0.4.2: 可动的开关 / 旋钮 / 手柄 (每帧按系统状态动画)
+    this.ctlById = {};
     this.active = false;
     this._bright = -1;
     this._dispT = 0;
@@ -237,6 +242,7 @@
     this._buildOverhead();
     this._buildSeats();
     this._buildExtras();
+    this._buildSwitchPanels();
 
     /* ---- 视点 ---- */
     this.eyeL = new THREE.Object3D(); this.eyeL.position.set(this.eyeX, 0, 0); this.eyeL.rotation.x = -0.12;
@@ -366,8 +372,12 @@
       this.gearLights.push(lm);
       this._plane(0.016, 0.012, lm, gx + 0.045 + (i === 1 ? 0 : (i === 0 ? -0.0 : 0)), gy + 0.045 - i * 0.02, 0.008, 0, 0, 0, pg);
     }
-    wheel.userData.hit = function () { self._clickGear(); };
-    this.clickables.push(wheel);
+    // 起落架手柄: 点击 = 收 / 放; 滚轮向上 = 收, 向下 = 放 (整根手柄都是点击区)
+    this._ctl(this._hitbox(0.06, 0.16, 0.05, 0, 0.035, 0.02, gl), {
+      id: 'gear', tip: '起落架手柄 (点击收 / 放)',
+      click: function () { self._clickGear(); },
+      wheel: function (dir) { self._clickGear(dir > 0 ? 'up' : 'down'); }
+    });
     this._gearWheel = wheel;
     void boeing;
   };
@@ -404,6 +414,8 @@
         this._box(0.052, 0.008, 0.037, M.stick, (i === 0 ? -1 : 1) * 0.012, 0.187, 0, 0, 0, 0, lv);
       }
       this.thrLevers.push(lv);
+      // beta 0.4.2: 推力手柄可拖拽 (上下拖 = 推 / 收油门, 滚轮微调; 两侧手柄联动)
+      this._ctl(this._hitbox(0.05, 0.075, 0.05, 0, 0.18, 0, lv), this._throttleCtl(i));
     }
     // 襟翼手柄 (右) / 减速板手柄 (左)
     var mkLever = function (x, color) {
@@ -414,20 +426,27 @@
     }.bind(this);
     this.flapLever = mkLever(0.14, M.knob);
     this.sbLever = mkLever(-0.14, M.stick);
-    // 襟翼 / 减速板手柄可点击 (一轮 = 收/放一档)
+    // 襟翼手柄: 左键 = 放下一档, 右键 / Shift+左键 = 收上一档, 滚轮向上 = 收 / 向下 = 放, 上下拖动连续换档
+    // 减速板手柄: 左键 = 放出 / 收回, 右键 = 地面扰流板预位 (ARM), 滚轮 = 0 / 半 / 全, 拖动连续
     var selfPed = this;
-    function hitBox(lever, fn) {
-      var h = selfPed._box(0.06, 0.16, 0.05, M.lever, 0, 0.08, 0.02, 0, 0, 0, lever);
-      h.material = h.material.clone(); h.material.visible = false; h.material.transparent = true; h.material.opacity = 0;
-      selfPed._mats.push(h.material);
-      h.userData.hit = fn; selfPed.clickables.push(h);
-    }
-    hitBox(this.flapLever, function () { selfPed._clickFlap(); });
-    hitBox(this.sbLever, function () { selfPed._clickSpoiler(); });
-    // 操纵台后部: 无线电面板 (贴图)
+    this._ctl(this._hitbox(0.06, 0.18, 0.05, 0, 0.08, 0.02, this.flapLever), {
+      id: 'flap', tip: '襟翼手柄 (左键放 / 右键收 / 滚轮 / 拖动)',
+      click: function (dir) { selfPed._clickFlap(dir); },
+      wheel: function (dir) { selfPed._clickFlap(-dir); },
+      drag: this._stepDrag(function (dir) { selfPed._clickFlap(dir); }, 0.035)
+    });
+    this._ctl(this._hitbox(0.06, 0.18, 0.05, 0, 0.08, 0.02, this.sbLever), {
+      id: 'speedbrake', tip: '减速板手柄 (左键放出 / 收回, 右键地面扰流板预位, 滚轮 / 拖动)',
+      click: function (dir) { if (dir < 0) selfPed._clickSpoilerArm(); else selfPed._clickSpoiler(); },
+      wheel: function (dir) { selfPed._stepSpoiler(-dir); },
+      drag: this._stepDrag(function (dir) { selfPed._stepSpoiler(dir); }, 0.04)
+    });
+    this._pedGeo = { top: top, qz: qz, qLen: qLen, zEnd: zEnd, pw: pw };
+    // 操纵台后部: 无线电面板 (贴图; 前面留出发动机主电门 / 停留刹车面板的位置)
+    var rz0 = qz + qLen / 2 + 0.22;
     var rc = mkCanvas(256, 256); this._drawRadio(rc);
     var rm = this._mat(0xffffff, { flat: true, map: this._tex(rc) });
-    this._plane(pw * 1.9, zEnd - qz - qLen / 2 - 0.02, rm, 0, top + 0.002, (qz + qLen / 2 + zEnd) / 2, -Math.PI / 2);
+    this._plane(pw * 1.9, zEnd - rz0, rm, 0, top + 0.002, (rz0 + zEnd) / 2, -Math.PI / 2);
   };
 
   /* ---------------- 侧杆 / 驾驶盘 ---------------- */
@@ -444,6 +463,7 @@
         this._cyl(0.014, 0.017, 0.09, 10, M.stick, 0, 0.05, 0, 0, 0, 0, st);
         this._box(0.04, 0.075, 0.05, M.stick, 0, 0.12, -0.008, 0.22, 0, 0, st);
         this._cyl(0.007, 0.007, 0.006, 8, M.red, 0.008 * -s, 0.162, -0.02, 0, 0, 0, st);
+        this._ctl(this._hitbox(0.03, 0.03, 0.035, 0.008 * -s, 0.165, -0.02, st), this._apDiscCtl('sidestick-ap-disc-' + (s < 0 ? 'L' : 'R'), '侧杆 AP 断开按钮 (红色)'));
         // 扶手
         this._box(0.10, 0.04, 0.28, M.console, s * 0.80 * k, top + 0.02, -0.05 * k);
         this.sticks.push({ side: s, g: st });
@@ -459,6 +479,10 @@
         for (var g = -1; g <= 1; g += 2) {
           this._box(0.035, 0.13, 0.04, M.stick, g * 0.15, 0.06, 0.012, 0, 0, -g * 0.12, wh);
         }
+        // 驾驶盘外侧握把上的 AP 断开按钮 (红色)
+        var gs = s < 0 ? -1 : 1;
+        this._cyl(0.008, 0.008, 0.008, 8, M.red, gs * 0.16, 0.115, 0.03, Math.PI / 2, 0, 0, wh);
+        this._ctl(this._hitbox(0.04, 0.04, 0.03, gs * 0.16, 0.115, 0.03, wh), this._apDiscCtl('yoke-ap-disc-' + (s < 0 ? 'L' : 'R'), '驾驶盘 AP 断开按钮 (红色)'));
         // 中央小屏/检查单夹 (浅色)
         this._box(0.06, 0.035, 0.008, M.door, 0, 0.012, 0.03, 0, 0, 0, wh);
         this.yokes.push({ side: s, col: col, wheel: wh });
@@ -513,6 +537,308 @@
     var pedX = this.eyeX;
     this._box(0.08, 0.02, 0.12, M.stick, pedX - 0.10, -1.05 * k, -0.55 * k);
     this._box(0.08, 0.02, 0.12, M.stick, pedX + 0.10, -1.05 * k, -0.55 * k);
+  };
+
+  /* =====================================================================
+     beta 0.4.2: 可操作的三维开关 / 旋钮 / 手柄
+     --------------------------------------------------------------------
+     · 每个控件 = 真实几何体 (拨杆 / 按钮 / 旋钮) + 不可见的点击盒 (userData.ctl)
+     · ctl = { id, tip, click(dir), wheel(dir), drag:{begin(), move(dyUp)} }
+       dir: 左键 = +1, 右键 / Shift+左键 = -1; 滚轮向上 = +1
+     · 动画: 每帧按系统状态 (fm / sim) 插值到目标角度, 键盘 / 侧边面板操作也会同步
+     · 全部为程序化几何体, 不依赖外部机模中的开关网格
+     ===================================================================== */
+  function safe(fn, d) { try { var v = fn(); return v === undefined ? d : v; } catch (e) { return d; } }
+
+  /** 不可见点击盒 (射线可命中, 不渲染) */
+  P._hitbox = function (w, h, d, x, y, z, parent) {
+    if (!this._hitMat) {
+      this._hitMat = new this.THREE.MeshBasicMaterial({ visible: false });
+      this._hitMat.userData.emissive = true;
+      this._mats.push(this._hitMat);
+    }
+    var m = this._mesh(new this.THREE.BoxGeometry(w, h, d), this._hitMat, parent);
+    m.position.set(x || 0, y || 0, z || 0);
+    m.userData.noBake = true;
+    return m;
+  };
+  /** 把点击盒登记为控件 */
+  P._ctl = function (mesh, ctl) {
+    mesh.userData.ctl = ctl;
+    this.clickables.push(mesh);
+    if (ctl.id) { this.ctlById[ctl.id] = { mesh: mesh, ctl: ctl }; }
+    return mesh;
+  };
+  /** 拖动换档: 每拖过 step (屏幕高度比例) 触发一次 fn(dir), 向下拖 = +1 */
+  P._stepDrag = function (fn, step) {
+    var acc = 0;
+    return {
+      begin: function () { acc = 0; },
+      move: function (dyUp) {
+        acc -= dyUp;
+        while (acc >= step) { acc -= step; fn(1); }
+        while (acc <= -step) { acc += step; fn(-1); }
+      }
+    };
+  };
+  P._apDiscCtl = function (id, tip) {
+    var doc = global.document, sim = this.sim;
+    return { id: id, tip: tip, click: function () {
+      var e = doc && doc.getElementById('fcu-apdisconnect');
+      if (e) e.click(); else if (sim && sim.ap && sim.ap.instinctiveDisconnect) sim.ap.instinctiveDisconnect('人工断开');
+    } };
+  };
+
+  /* ---------------- 推力手柄 ---------------- */
+  P._thrNow = function () { var fm = this.sim && this.sim.fm; return fm && fm.throttle ? (fm.throttle[0] || 0) : 0; };
+  P._setThrottle = function (v) {
+    var sim = this.sim, fm = sim && sim.fm;
+    if (!fm) return;
+    v = Math.max(0, Math.min(1, v));
+    if (this.L.maker === 'airbus') {          // 空客卡位: CL 0.82 / FLX 0.92 / TOGA 1.0 有吸附
+      [0.82, 0.92, 1].forEach(function (d) { if (Math.abs(v - d) < 0.022) v = d; });
+    }
+    if (v < 0.015) v = 0;
+    fm.setThrottle('all', v);
+    if (sim.input && sim.input.setThrottle) sim.input.setThrottle(v);    // 否则下一帧会被输入轴覆盖
+    var ap = sim.ap && sim.ap.ap;
+    if (ap && ap.athr && !this._athrHint) {
+      this._athrHint = true;
+      if (sim.hud) sim.hud.notify('A/THR 接通中: 推力由自动推力控制 (按 A/THR 断开后手动)', 'info', 2500);
+    }
+  };
+  P._throttleCtl = function (i) {
+    var self = this, start = 0, acc = 0;
+    return {
+      id: 'throttle' + (i + 1), tip: '推力手柄 (按住上下拖动 = 推 / 收油门, 滚轮微调)',
+      click: function () { },
+      wheel: function (dir) { self._setThrottle(self._thrNow() + dir * 0.04); },
+      drag: {
+        begin: function () { start = self._thrNow(); acc = 0; self._athrHint = false; },
+        move: function (dyUp) { acc += dyUp; self._setThrottle(start + acc / 0.32); }
+      }
+    };
+  };
+
+  /* ---------------- 面板 / 开关构造 ---------------- */
+  /**
+   * 带文字底板的控件面板. 局部坐标: x 右, y 面板 "上", +z 指向飞行员 (面板外法线)
+   * @param {object} o {parent, pos:[x,y,z], rotX, w, h, color, labels:[[text,x,y,size,color]]}
+   */
+  P._panel = function (o) {
+    var THREE = this.THREE, g = new THREE.Group();
+    g.position.set(o.pos[0], o.pos[1], o.pos[2]);
+    g.rotation.x = o.rotX || 0;
+    (o.parent || this.group).add(g);
+    var s = 1400, cw = Math.min(1024, Math.ceil(o.w * s)), ch = Math.min(512, Math.ceil(o.h * s));
+    var c = mkCanvas(cw, ch), ctx = c.getContext('2d');
+    ctx.fillStyle = hex(o.color || this.pal.panel); ctx.fillRect(0, 0, cw, ch);
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 3; ctx.strokeRect(2, 2, cw - 4, ch - 4);
+    var P0 = { g: g, w: o.w, h: o.h, c: c, ctx: ctx, sx: cw / o.w, sy: ch / o.h };
+    P0.label = function (t, x, y, size, color) {
+      ctx.fillStyle = color || '#eef1f3'; ctx.font = 'bold ' + Math.round((size || 0.011) * P0.sy) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(t, (x + o.w / 2) * P0.sx, (o.h / 2 - y) * P0.sy);
+    };
+    P0.frame = function (x, y, w, h) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 2;
+      ctx.strokeRect((x - w / 2 + o.w / 2) * P0.sx, (o.h / 2 - y - h / 2) * P0.sy, w * P0.sx, h * P0.sy);
+    };
+    (o.labels || []).forEach(function (l) { P0.label(l[0], l[1], l[2], l[3], l[4]); });
+    P0.mat = this._mat(0xffffff, { flat: true, map: this._tex(c) });
+    P0.plate = this._plane(o.w, o.h, P0.mat, 0, 0, 0, 0, 0, 0, g);
+    P0.plate.userData.panel = true;
+    return P0;
+  };
+  P._lampMat = function () { return this._mat(0x1a1c1e, { flat: true, toneMapped: false, emissive: true }); };
+  P._regAnim = function (obj, prop, target, speed) {
+    var a = { obj: obj, prop: prop, target: target, cur: null, speed: speed || 16 };
+    this.controls.push(a);
+    return a;
+  };
+  P._regLamp = function (mat, fn) { this.controls.push({ lamp: mat, fn: fn, last: -1 }); };
+
+  /** 拨动开关: get() → bool, toggle(dir) */
+  P._toggle = function (pn, x, y, sp) {
+    var THREE = this.THREE, M = this.M, g = pn.g;
+    this._box(0.02, 0.026, 0.004, M.black, x, y, 0.002, 0, 0, 0, g);
+    var pv = new THREE.Group(); pv.position.set(x, y, 0.004); g.add(pv);
+    this._cyl(0.0032, 0.0042, 0.024, 8, M.knob, 0, 0, 0.012, Math.PI / 2, 0, 0, pv);
+    this._cyl(0.0055, 0.0055, 0.006, 10, M.knob, 0, 0, 0.025, Math.PI / 2, 0, 0, pv);
+    var on = -0.5 * (sp.onDir || 1);
+    this._regAnim(pv.rotation, 'x', function () { return safe(sp.get, false) ? on : -on; });
+    pn.label(sp.label, x, y + 0.027, 0.0095);
+    if (sp.on !== '') pn.label(sp.on || 'ON', x, y + (sp.onDir || 1) * 0.0165, 0.0075, '#cfd3d6');
+    if (sp.off !== '') pn.label(sp.off || 'OFF', x, y - (sp.onDir || 1) * 0.0165, 0.0075, '#cfd3d6');
+    if (sp.lamp) {
+      var lm = this._lampMat();
+      this._plane(0.014, 0.006, lm, x, y - 0.03, 0.002, 0, 0, 0, g);
+      this._regLamp(lm, sp.lamp);
+    }
+    return this._ctl(this._hitbox(0.03, 0.045, 0.04, x, y, 0.016, g),
+      { id: sp.id, tip: sp.tip, click: function (dir) { sp.toggle(dir); }, wheel: function (dir) { if (!!safe(sp.get, false) !== (dir > 0)) sp.toggle(dir); } });
+  };
+  /** 带灯按钮: lamp() → 0xRRGGBB | 0 (熄灭), press() */
+  P._pushBtn = function (pn, x, y, sp) {
+    var THREE = this.THREE, M = this.M, g = pn.g, self = this;
+    this._box(0.03, 0.026, 0.004, M.black, x, y, 0.002, 0, 0, 0, g);
+    var pv = new THREE.Group(); pv.position.set(x, y, 0.004); g.add(pv);
+    this._box(0.026, 0.022, 0.008, M.bezel, 0, 0, 0.004, 0, 0, 0, pv);
+    var lm = this._lampMat();
+    this._plane(0.02, 0.006, lm, 0, 0.004, 0.0085, 0, 0, 0, pv);
+    this._regLamp(lm, sp.lamp);
+    var anim = this._regAnim(pv.position, 'z', function () { return anim.pressT > 0 ? 0.001 : 0.004; }, 30);
+    anim.pressT = 0;
+    pn.label(sp.label, x, y + 0.022, 0.0095);
+    if (sp.sub) pn.label(sp.sub, x, y - 0.0185, 0.007, '#cfd3d6');
+    return this._ctl(this._hitbox(0.034, 0.03, 0.03, x, y, 0.012, g),
+      { id: sp.id, tip: sp.tip, click: function (dir) { anim.pressT = 0.18; sp.press(dir); void self; } });
+  };
+  /** 多档旋钮: positions[], get() → index, set(index) */
+  P._rotary = function (pn, x, y, sp) {
+    var THREE = this.THREE, M = this.M, g = pn.g, n = sp.positions.length;
+    var step = sp.step || Math.min(0.6, 2.4 / Math.max(1, n - 1)), r = sp.r || 0.014;
+    var pv = new THREE.Group(); pv.position.set(x, y, 0.002); g.add(pv);
+    this._cyl(r, r * 1.1, 0.012, 16, M.stick, 0, 0, 0.006, Math.PI / 2, 0, 0, pv);
+    this._box(r * 0.45, r * 1.9, 0.008, M.knob, 0, r * 0.35, 0.013, 0, 0, 0, pv);
+    this._regAnim(pv.rotation, 'z', function () { var i = safe(sp.get, 0); return -(i - (n - 1) / 2) * step; }, 14);
+    pn.label(sp.label, x, y + r + 0.022, 0.0095);
+    for (var i = 0; i < n; i++) {
+      var a = (i - (n - 1) / 2) * step, rr = r + 0.0105;
+      pn.label(sp.positions[i], x + Math.sin(a) * rr, y + Math.cos(a) * rr, 0.0072, '#d8dcdf');
+    }
+    function setI(i) { i = Math.max(0, Math.min(n - 1, i)); if (i !== safe(sp.get, 0)) sp.set(i); }
+    return this._ctl(this._hitbox(r * 2.6, r * 2.6, 0.03, x, y, 0.012, g), {
+      id: sp.id, tip: sp.tip,
+      // 点击循环换档 (到头后回到另一端), 滚轮不循环
+      click: function (dir) { var i = safe(sp.get, 0) + (dir < 0 ? -1 : 1); i = (i + n) % n; setI(i); },
+      wheel: function (dir) { setI(safe(sp.get, 0) + dir); }
+    });
+  };
+
+  /* ---------------- 面板布置 ---------------- */
+  P._buildSwitchPanels = function () {
+    var self = this, k = this.L.k, boeing = this.L.maker === 'boeing', doc = global.document;
+    function sim() { return self.sim || {}; }
+    function fm() { return sim().fm || null; }
+    function domClick(id) { var e = doc && doc.getElementById(id); if (e) { e.click(); return true; } return false; }
+    function notify(t) { var h = sim().hud; if (h && h.notify) h.notify(t, 'info', 1300); }
+
+    /* ---- 1. 头顶板前部: 外部灯光 + APU (真实拨杆) ---- */
+    // 头顶板平面: (y 0.245k, z -0.70k) → (y 0.34k, z 0.15k); 局部 +y = 朝后, +z = 朝下 (指向飞行员)
+    var sl = 0.095 / 0.85, th = Math.atan2(0.85, 0.095);
+    var zc = -0.585 * k, yc = 0.245 * k + (zc + 0.70 * k) * sl;
+    var off = 0.007;                         // 面板略低于头顶板, 避免 z-fighting
+    var LT = [['strobe', 'STROBE', '频闪灯'], ['beacon', 'BEACON', '防撞信标灯'], ['wing', 'WING', '机翼照明灯'], ['nav', 'NAV', '航行灯'],
+      ['logo', 'LOGO', '标志灯'], ['landing', 'LAND', '着陆灯'], ['taxi', 'TAXI', '滑行灯 / 前轮灯'], ['cabin', 'CABIN', '客舱灯']];
+    var ow = 0.70, oh = 0.10;
+    var ovh = this._panel({ pos: [0, yc - off, zc], rotX: th, w: ow, h: oh,
+      labels: [['EXT LT', -ow / 2 + 0.05, oh / 2 - 0.012, 0.010, '#ffffff']] });
+    var dx = 0.071, x0 = -ow / 2 + 0.06;
+    LT.forEach(function (L, i) {
+      var key = L[0];
+      self._toggle(ovh, x0 + i * dx, -0.004, {
+        id: 'light-' + key, label: L[1], tip: L[2] + ' (点击开 / 关)', onDir: -1,
+        get: function () { var s = sim(); return !!(s.lights && s.lights[key]); },
+        toggle: function () {
+          var s = sim(); if (!s.getLights || !s.setLights) return;
+          var st = s.getLights(); st[key] = !st[key]; s.setLights(st);
+          notify(L[2] + (st[key] ? ' 开' : ' 关'));
+        }
+      });
+    });
+    ovh.frame(x0 + 3.5 * dx, -0.004, 8 * dx + 0.01, 0.085);
+    this._pushBtn(ovh, ow / 2 - 0.05, -0.004, {
+      id: 'apu', label: 'APU', sub: 'MASTER', tip: 'APU 主电门 (起动 / 停车, 约 60 秒后可用)',
+      lamp: function () { var f = fm(); if (!f || !f.apuRunning) return 0; return (f.apuTimer || 0) > 60 ? 0x2bff5a : 0x3fa8ff; },
+      press: function () { if (!domClick('apu-btn')) { var f = fm(); if (f) { if (f.apuRunning) f.stopAPU(); else f.startAPU(); } } }
+    });
+    if (ovh.mat.map) ovh.mat.map.needsUpdate = true;
+
+    /* ---- 2. 操纵台: 发动机主电门 (空客 ENG MASTER / 波音 FUEL CONTROL) ---- */
+    var pg = this._pedGeo, pw = pg.pw, pz = pg.qz + pg.qLen / 2 + 0.06;
+    var eng = this._panel({ pos: [0, pg.top + 0.004, pz], rotX: -Math.PI / 2, w: pw * 1.9, h: 0.095,
+      labels: [[boeing ? 'FUEL CONTROL' : 'ENG MASTER', 0, 0.038, 0.0095, '#ffffff']] });
+    [0, 1].forEach(function (i) {
+      self._toggle(eng, (i === 0 ? -1 : 1) * 0.065, -0.008, {
+        id: 'eng-master-' + (i + 1), label: 'ENG ' + (i + 1), on: boeing ? 'RUN' : 'ON', off: boeing ? 'CUTOFF' : 'OFF', onDir: 1,
+        tip: (boeing ? '燃油控制电门 ' : '发动机主电门 ') + (i + 1) + ' (点击起动 / 关车)',
+        get: function () { var f = fm(), e = f && f.engines[Math.min(i, f.engines.length - 1)]; return !!(e && e.state !== 'off' && e.state !== 'shutting'); },
+        lamp: function () { var f = fm(), e = f && f.engines[Math.min(i, f.engines.length - 1)]; return e && (e.state === 'starting' || e.state === 'shutting') ? 0xffb000 : 0; },
+        toggle: function () {
+          if (domClick('eng-start-' + (i + 1))) return;
+          var f = fm(); if (!f) return;
+          if (f.engines[i].state === 'off') f.startEngine(i); else f.shutdownEngine(i);
+        }
+      });
+    });
+    // 停留刹车 (操纵台上, 发动机主电门后方)
+    this._rotary(eng, 0, -0.006, {
+      id: 'park-brake', label: boeing ? 'PARK BRAKE' : 'PARK BRK', positions: ['OFF', 'ON'], step: 1.2, r: 0.011,
+      tip: '停留刹车 (点击 / 滚轮 开关)',
+      get: function () { var f = fm(); return f && f.parkingBrake ? 1 : 0; },
+      set: function (i) { var f = fm(); if (!f) return; if (!!f.parkingBrake !== !!i) { if (!domClick('park-brake')) f.setParkingBrake(!!i); } }
+    });
+    var pbLamp = this._lampMat();
+    this._plane(0.022, 0.007, pbLamp, 0, -0.04, 0.002, 0, 0, 0, eng.g);
+    this._regLamp(pbLamp, function () { var f = fm(); return f && f.parkingBrake ? 0xff3020 : 0; });
+    if (eng.mat.map) eng.mat.map.needsUpdate = true;
+
+    /* ---- 3. 主仪表板中央 (下显示器右侧): 自动刹车旋钮 ---- */
+    var pd = this._panelDims, du = this.L.du;
+    var abx = (du / 2 + 0.012 + pd.cw) / 2, aby = -(0.014 + du / 2) - du - 0.03, abw = Math.max(0.08, pd.cw - du / 2 - 0.02);
+    var abModes = safe(function () { return fm().ac.systems.autoBrake; }, null) || ['OFF', 'LO', 'MED', 'MAX'];
+    var ab = this._panel({ parent: this.panelGroup, pos: [abx, aby, 0.006], w: abw, h: 0.10,
+      labels: [['AUTO BRK', 0, 0.04, 0.0095, '#ffffff']] });
+    this._rotary(ab, 0, -0.012, {
+      id: 'autobrake', label: '', positions: abModes, r: 0.012, step: Math.min(0.55, 2.6 / Math.max(1, abModes.length - 1)),
+      tip: '自动刹车 (左键 / 滚轮向上 = 下一档, 右键 = 上一档)',
+      get: function () { var f = fm(); var i = f ? abModes.indexOf(f.autoBrake) : 0; return i < 0 ? 0 : i; },
+      set: function (i) {
+        var m = abModes[i], f = fm(); if (!f) return;
+        var b = doc && doc.querySelector && doc.querySelector('#autobrake-list .ab-btn[data-mode="' + m + '"]');
+        if (b) b.click(); else { f.setAutoBrake(m); notify('自动刹车 ' + m); }
+      }
+    });
+    if (ab.mat.map) ab.mat.map.needsUpdate = true;
+  };
+
+  /** 每帧: 开关动画 + 指示灯 (指示灯 10 Hz) */
+  P._updateSwitches = function (dt) {
+    var a = Math.min(1, dt * 16), lampTick = (this._lampT = (this._lampT || 0) + dt) >= 0.1;
+    if (lampTick) this._lampT = 0;
+    for (var i = 0; i < this.controls.length; i++) {
+      var c = this.controls[i];
+      if (c.lamp) {
+        if (!lampTick) continue;
+        var col = safe(c.fn, 0) || 0;
+        if (col !== c.last) { c.last = col; c.lamp.color.setHex(col || 0x1a1c1e); }
+        continue;
+      }
+      if (c.pressT > 0) c.pressT -= dt;
+      var tg = c.target();
+      if (c.cur === null) c.cur = tg;
+      c.cur += (tg - c.cur) * Math.min(1, dt * c.speed);
+      if (Math.abs(tg - c.cur) < 1e-4) c.cur = tg;
+      c.obj[c.prop] = c.cur;
+      void a;
+    }
+  };
+
+  /** 测试 / 教学: 控件中心的 NDC 坐标 */
+  P.locateCtl = function (id, camera) {
+    var e = this.ctlById[id];
+    if (!e) return null;
+    this.group.updateMatrixWorld(true);
+    var p = new this.THREE.Vector3().setFromMatrixPosition(e.mesh.matrixWorld).project(camera);
+    return { x: p.x, y: p.y, z: p.z };
+  };
+  /** 列出全部可操作控件 (调试 / 文档) */
+  P.listControls = function () {
+    var out = Object.keys(this.ctlById).map(function (id) { return id; });
+    var rects = 0;
+    this.clickables.forEach(function (o) { if (o.userData.rects) rects += o.userData.rects.length; });
+    return { meshControls: out, canvasHotspots: rects };
   };
 
   /* =====================================================================
@@ -681,8 +1007,9 @@
 
   P._efisValues = function () {
     var sim = this.sim || {}, p = sim.pfdL || {}, n = sim.ndL || {};
+    var ap = (sim.ap && sim.ap.ap) || {};
     return { std: p.baroStd !== false, baro: Math.round(p.baroSetting || 1013), mode: n.mode || 'ROSE', range: n.rangeNm || 40,
-      terr: !!n.terrainOn, wx: n.weatherOn !== false };
+      terr: !!n.terrainOn, wx: n.weatherOn !== false, fd: !!(ap.fd1 || ap.fd2) };
   };
   P._drawEFIS = function (v) {
     var c = this.efisCanvas, g = c.getContext('2d'), W = c.width, H = c.height, rects = [];
@@ -703,7 +1030,7 @@
       g.fillStyle = '#e8ebee'; g.font = 'bold 13px sans-serif'; g.fillText(t, x + 28, y + 30);
       if (id) rects.push({ x: x, y: y, w: 56, h: 50, act: { click: id } });
     }
-    btn('FD', 152, 12, true, null); btn('LS', 214, 12, false, null);
+    btn('FD', 152, 12, v.fd, 'efis-fd'); btn('LS', 214, 12, false, null);
     btn('WXR', 152, 76, v.wx, 'nd-weather'); btn('TERR', 214, 76, v.terr, 'nd-terrain');
     function knob(cx, t, sub) {
       g.fillStyle = '#e8ebee'; g.font = 'bold 12px sans-serif'; g.fillText(sub, cx, 14);
@@ -790,6 +1117,7 @@
     }
     // 操纵机构
     this._updateControls(dt, st);
+    this._updateSwitches(dt);
     // 仪表 ~18 Hz
     this._dispT += dt;
     if (this._dispT >= 1 / 18 && data) {
@@ -937,6 +1265,7 @@
     var hits = this._ray.intersectObjects(this.clickables, false);
     if (!hits.length) return null;
     var h = hits[0], o = h.object;
+    if (o.userData.ctl) return { ctl: o.userData.ctl, kind: 'ctl' };
     if (o.userData.hit) return { fn: o.userData.hit, kind: 'mesh' };
     if (o.userData.rects && h.uv) {
       var cv = o.userData.canvas, px = h.uv.x * cv.width, py = (1 - h.uv.y) * cv.height;
@@ -970,9 +1299,10 @@
   };
 
   /** 执行一个点击动作; dir 用于滚轮 (+1 / -1) */
-  P.perform = function (hit, mult) {
+  P.perform = function (hit, mult, dir) {
     if (!hit) return false;
     var sim = this.sim, doc = global.document;
+    if (hit.ctl) { if (hit.ctl.click) hit.ctl.click(dir || 1); this._sig.fcu = ''; this._sig.efis = ''; return true; }
     if (hit.fn) { hit.fn(); return true; }
     var a = hit.act;
     if (!a) return false;
@@ -982,6 +1312,7 @@
       this._sig.fcu = '';
       return true;
     }
+    if (a.click === 'efis-fd') { this._toggleFD(); this._sig.efis = ''; return true; }
     if (a.click) {
       var e = doc && doc.getElementById(a.click);
       if (e) { e.click(); this._sig.fcu = ''; this._sig.efis = ''; return true; }
@@ -989,16 +1320,24 @@
     return false;
   };
 
-  P._clickGear = function () {
-    var fm = this.sim && this.sim.fm, doc = global.document;
+  /** @param {string} [want] 'up' | 'down'; 缺省 = 切换 */
+  P._clickGear = function (want) {
+    var sim = this.sim, fm = sim && sim.fm, doc = global.document;
     if (!fm) return;
-    var e = doc && doc.getElementById(fm.gearCmd > 0.5 ? 'gear-up' : 'gear-down');
-    if (e) e.click();
+    var down = want ? want === 'down' : fm.gearCmd < 0.5;
+    if (down === fm.gearCmd > 0.5) return;
+    var before = fm.gearCmd;
+    var e = doc && doc.getElementById(down ? 'gear-down' : 'gear-up');
+    if (e) e.click(); else fm.setGear(down);
+    if (fm.gearCmd !== before && sim.audio && sim.audio.playCue) { sim.audio.playCue(down ? 'gear_down' : 'gear_up'); sim.audio.playCue('gear_motor'); }
   };
-  P._clickFlap = function () {
+  /** @param {number} [dir] +1 = 放下一档 (默认), -1 = 收上一档 */
+  P._clickFlap = function (dir) {
     var sim = this.sim, fm = sim && sim.fm;
     if (!fm || !fm.stepFlap) return;
-    var name = fm.stepFlap(1);
+    var before = fm.flapDetentIndex;
+    var name = fm.stepFlap(dir < 0 ? -1 : 1);
+    if (fm.flapDetentIndex === before) return;
     if (sim.audio && sim.audio.playCue) sim.audio.playCue('flap_motor');
     if (sim.hud) {
       sim.hud.notify('襟翼 ' + name, 'info', 1500);
@@ -1012,6 +1351,27 @@
     if (sim.audio && sim.audio.playCue) sim.audio.playCue('speedbrake');
     if (sim.hud) sim.hud.notify('减速板 ' + (fm.spoilerCmd > 0.5 ? '放出' : '收回'), 'info', 1500);
   };
+  /** 减速板分档: 0 / 0.5 / 1 */
+  P._stepSpoiler = function (dir) {
+    var sim = this.sim, fm = sim && sim.fm;
+    if (!fm || !fm.setSpoilers) return;
+    var cur = Math.round((fm.spoilerCmd || 0) * 2) / 2, nv = Math.max(0, Math.min(1, cur + (dir > 0 ? 0.5 : -0.5)));
+    if (nv === cur) return;
+    fm.setSpoilers(nv);
+    if (sim.audio && sim.audio.playCue) sim.audio.playCue('speedbrake');
+    if (sim.hud) sim.hud.notify('减速板 ' + (nv === 0 ? '收回' : nv < 1 ? '半程' : '全放出'), 'info', 1200);
+  };
+  P._clickSpoilerArm = function () {
+    var doc = global.document, e = doc && doc.getElementById('spoiler-arm'), fm = this.sim && this.sim.fm;
+    if (e) e.click(); else if (fm) fm.spoilerArmedLanding = !fm.spoilerArmedLanding;
+  };
+  P._toggleFD = function () {
+    var sim = this.sim, ap = sim && sim.ap && sim.ap.ap;
+    if (!ap) return;
+    var on = !(ap.fd1 || ap.fd2);
+    ap.fd1 = on; ap.fd2 = on;
+    if (sim.hud) sim.hud.notify('飞行指引 FD ' + (on ? '开' : '关'), 'info', 1200);
+  };
 
   P.dispose = function () {
     if (this.group.parent) this.group.parent.remove(this.group);
@@ -1019,14 +1379,20 @@
     this._mats.forEach(function (m) { m.dispose(); });
     this._texs.forEach(function (t) { t.dispose(); });
     this._geoms = []; this._mats = []; this._texs = [];
-    this.clickables = [];
+    this.clickables = []; this.controls = []; this.ctlById = {};
   };
 
-  /** 交互绑定: 在三维画面上点击 FCU 按钮 / 旋钮, 滚轮转旋钮, 悬停显示手形光标 */
+  /**
+   * 交互绑定 (鼠标):
+   *  · 左键点击按钮 / 开关; 右键 (或 Shift+左键) = 反向操作 (襟翼收上、旋钮上一档、减速板预位…)
+   *  · 按住手柄上下拖动 (推力手柄 / 襟翼 / 减速板); 拖动不足 4 px 视为点击
+   *  · 滚轮转旋钮 / 推拉手柄; ALT 旋钮滚轮一格 1000 ft, Shift+滚轮 100 ft
+   *  · 悬停显示手形光标与控件名称
+   */
   function bindInteraction(sim) {
     if (!global.addEventListener || bindInteraction._done) return;
     bindInteraction._done = true;
-    var held = null;
+    var held = null, drag = null;
     function onScene(ev) {
       var id = ev.target && ev.target.id;
       return id === 'viewport' || id === 'hud-canvas';
@@ -1034,36 +1400,76 @@
     function ndc(ev) { return [(ev.clientX / global.innerWidth) * 2 - 1, -(ev.clientY / global.innerHeight) * 2 + 1]; }
     function cp() { return sim.cockpit3d && sim.cockpit3d.active && sim.running ? sim.cockpit3d : null; }
     global.addEventListener('mousedown', function (ev) {
-      var c = cp(); if (!c || ev.button !== 0 || !onScene(ev)) return;
+      var c = cp(); if (!c || (ev.button !== 0 && ev.button !== 2) || !onScene(ev)) return;
       // beta 0.4: 鼠标驾驶杆模式下也允许点击 FCU 按钮 / 旋钮 (点击不参与杆量, 也不会触发 AP 超控断开)
       var n = ndc(ev), hit = c.pick(n[0], n[1], sim.camera);
       if (!hit) return;
       ev.stopPropagation(); ev.preventDefault();
-      c.perform(hit, 1);
+      var dir = (ev.button === 2 || ev.shiftKey) ? -1 : 1;
+      if (hit.ctl && hit.ctl.drag) {
+        drag = { c: c, hit: hit, dir: dir, y0: ev.clientY, y: ev.clientY, moved: false };
+        return;
+      }
+      if (hit.act && hit.act.knob && ev.button === 2) return;      // 旋钮左右半边已区分方向
+      c.perform(hit, 1, dir);
       if (hit.act && hit.act.knob) {
-        var t0 = Date.now();
-        held = global.setInterval(function () { if (Date.now() - t0 > 350) c.perform(hit, 1); }, 90);
+        var t0 = Date.now(), mult = hit.act.knob === 'alt' && !ev.shiftKey ? 10 : 1;
+        if (mult > 1) c.perform(hit, mult - 1);   // ALT: 单击 1000 ft
+        held = global.setInterval(function () { if (Date.now() - t0 > 350) c.perform(hit, mult); }, 90);
       }
     }, true);
-    global.addEventListener('mouseup', function () { if (held) { global.clearInterval(held); held = null; } }, true);
+    global.addEventListener('mousemove', function (ev) {
+      if (!drag) return;
+      var dy = ev.clientY - drag.y;
+      if (!drag.moved && Math.abs(ev.clientY - drag.y0) > 4) { drag.moved = true; if (drag.hit.ctl.drag.begin) drag.hit.ctl.drag.begin(); dy = ev.clientY - drag.y0; }
+      if (drag.moved && dy) drag.hit.ctl.drag.move(-dy / Math.max(1, global.innerHeight));
+      drag.y = ev.clientY;
+      ev.stopPropagation();
+    }, true);
+    global.addEventListener('mouseup', function () {
+      if (held) { global.clearInterval(held); held = null; }
+      if (drag) {
+        var d = drag; drag = null;
+        if (!d.moved) d.c.perform(d.hit, 1, d.dir);
+      }
+    }, true);
     global.addEventListener('wheel', function (ev) {
       var c = cp(); if (!c || !onScene(ev)) return;
       var n = ndc(ev), hit = c.pick(n[0], n[1], sim.camera);
-      if (!hit || !hit.act || !hit.act.knob) return;
+      if (!hit) return;
+      var dir = ev.deltaY < 0 ? 1 : -1;
+      if (hit.ctl) {
+        if (!hit.ctl.wheel) return;
+        ev.stopPropagation(); if (ev.cancelable) ev.preventDefault();
+        var now = Date.now();
+        if (hit.ctl.wheelStep !== false && c._wheelT && now - c._wheelT < 120 && hit.ctl.id !== 'throttle1' && hit.ctl.id !== 'throttle2') return;   // 触控板防连跳
+        c._wheelT = now;
+        hit.ctl.wheel(dir);
+        return;
+      }
+      if (!hit.act || !hit.act.knob) return;
       ev.stopPropagation(); if (ev.cancelable) ev.preventDefault();
-      c.perform({ act: { knob: hit.act.knob, dir: ev.deltaY < 0 ? 1 : -1 } }, hit.act.knob === 'alt' ? 1 : 2);
+      c.perform({ act: { knob: hit.act.knob, dir: dir } }, hit.act.knob === 'alt' ? (ev.shiftKey ? 1 : 10) : 2);
     }, { capture: true, passive: false });
     var lastMove = 0;
     global.addEventListener('mousemove', function (ev) {
       var c = cp(), now = Date.now();
-      if (now - lastMove < 80) return; lastMove = now;
+      if (drag || now - lastMove < 80) return; lastMove = now;
       var vp = global.document.getElementById('viewport');
-      if (!c || !onScene(ev) || (sim.input && sim.input.mouse && sim.input.mouse.down)) { if (vp && vp.style.cursor) vp.style.cursor = ''; return; }
-      var n = ndc(ev), hit = c.pick(n[0], n[1], sim.camera);
-      var cur = hit ? 'pointer' : '';
-      if (vp && vp.style.cursor !== cur) vp.style.cursor = cur;
       var hc = global.document.getElementById('hud-canvas');
-      if (hc && hc.style.cursor !== cur) hc.style.cursor = cur;
+      if (!c || !onScene(ev) || (sim.input && sim.input.mouse && sim.input.mouse.down)) {
+        if (vp && vp.style.cursor) vp.style.cursor = '';
+        if (hc && hc.style.cursor) hc.style.cursor = '';
+        return;
+      }
+      var n = ndc(ev), hit = c.pick(n[0], n[1], sim.camera);
+      var cur = hit ? (hit.ctl && hit.ctl.drag ? 'ns-resize' : 'pointer') : '';
+      var tip = hit && hit.ctl && hit.ctl.tip ? hit.ctl.tip : '';
+      [vp, hc].forEach(function (el) {
+        if (!el) return;
+        if (el.style.cursor !== cur) el.style.cursor = cur;
+        if (el.title !== tip) el.title = tip;
+      });
     }, true);
   }
 

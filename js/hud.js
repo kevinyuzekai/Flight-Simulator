@@ -469,7 +469,8 @@
 
   HUD.prototype._knobAdjust = function (id, dir) {
     var f = this._fcu;
-    if (id.indexOf('spd') === 0) {
+    // id 形如 fcu-spd-inc / fcu-hdg-dec (二维 FCU 与三维驾驶舱共用); 用包含判断, 不能用 indexOf===0
+    if (id.indexOf('spd') >= 0) {
       if (f.spdIsMach) {
         f.mach = U.clamp(Math.round((f.mach + dir * 0.01) * 100) / 100, 0.40, 0.92);
       } else {
@@ -479,14 +480,14 @@
         if (f.spdIsMach && this.sim.ap.ap.thrustMode === 'MACH') this.sim.ap.setTargetMach(f.mach);
         if (!f.spdIsMach && this.sim.ap.ap.thrustMode === 'SPEED') this.sim.ap.setTargetSpeed(f.spd);
       }
-    } else if (id.indexOf('hdg') === 0) {
+    } else if (id.indexOf('hdg') >= 0) {
       f.hdg = U.wrap360(Math.round(f.hdg + dir));
       if (this.sim.ap && this.sim.ap.ap.engaged && this.sim.ap.ap.rollMode === 'HDG') {
         this.sim.ap.setTargetHdg(f.hdg);
       }
-    } else if (id.indexOf('alt') === 0) {
+    } else if (id.indexOf('alt') >= 0) {
       f.alt = U.clamp(f.alt + dir * f.altStep, 0, 60000);
-    } else if (id.indexOf('vs') === 0) {
+    } else if (id.indexOf('vs') >= 0) {
       f.vs = U.clamp(f.vs + dir * 100, -6000, 6000);
       if (this.sim.ap && this.sim.ap.ap.engaged && this.sim.ap.ap.pitchMode === 'VS') {
         this.sim.ap.setTargetVs(f.vs);
