@@ -1,6 +1,6 @@
 {
   "name": "skyroute",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "天际航线 SkyRoute — 网页版民航客机飞行模拟器 (桌面版)",
   "main": "main.js",
   "author": "kevinyuzekai",

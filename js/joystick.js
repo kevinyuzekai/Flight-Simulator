@@ -1,24 +1,31 @@
 /* =====================================================================
- * joystick.js — 摇杆 / 侧杆 / 油门台支持 (beta 0.3)
+ * joystick.js — 摇杆 / 侧杆 / 油门台 / 脚舵支持 (beta 0.3, 0.4.1 修正)
  *
  * 基于浏览器 Gamepad API。标准映射的游戏手柄 (Xbox/PS) 由 input.js 直接处理;
- * 这里处理其它 HID 设备: Thrustmaster TCA 空客侧杆、TCA 油门台 (Quadrant)、普通飞行摇杆等。
+ * 这里处理其它 HID 设备: Thrustmaster TCA 空客侧杆、TCA 油门台 (Quadrant)、普通飞行摇杆、方向舵脚舵等。
  *
  * 注意: Chrome / Edge 出于隐私, 要在页面上按一下设备按钮 (或动一下轴) 后才会报告设备。
- * 每个设备 (按 Gamepad.id 区分) 一份映射: 轴 -> 俯仰/横滚/方向舵(扭转)/油门1/油门2,
+ * 每个设备 (按 Gamepad.id 区分) 一份映射: 轴 -> 俯仰/横滚/方向舵(扭转)/油门1/油门2/趾刹,
  * 反向、死区、灵敏度, 以及按钮 -> AP 断开 / PTT / 刹车 等。保存在 localStorage。
+ *
+ * 0.4.1: 设备类型 stick / hotas / other / throttle / pedals。多设备合成时只有
+ * 「符合设备类型」或「用户手动绑定」的轴参与, 并按优先级取值 (不再是最后一个设备覆盖):
+ *   俯仰/横滚: 侧杆 > HOTAS > 其它摇杆;  方向舵: 脚舵 > 扭转/拨片;  油门: 油门台 > HOTAS > 摇杆滑块
  * ===================================================================== */
 (function (global) {
   'use strict';
   var FS = global.FS = global.FS || {};
   var KEY = 'fs.joystick.v1';
+  var SCHEMA = 2;     // 配置格式版本 (0.4.1 起); 旧配置在 profile() 中迁移
 
   var AXIS_FUNCS = [
     { id: 'pitch', name: '俯仰 (拉杆抬头)' },
     { id: 'roll', name: '横滚' },
-    { id: 'yaw', name: '方向舵 / 扭转' },
+    { id: 'yaw', name: '方向舵 / 扭转 / 脚舵' },
     { id: 'throttle', name: '油门 1 (或全部)' },
     { id: 'throttle2', name: '油门 2' },
+    { id: 'brakeL', name: '左趾刹 (脚舵)' },
+    { id: 'brakeR', name: '右趾刹 (脚舵)' },
     { id: 'hat', name: '苦力帽 POV (驾驶舱环视)' }
   ];
   var BUTTON_FUNCS = [
@@ -32,6 +39,26 @@
     { id: 'throttleToggleRev', name: '反推', edge: true }
   ];
 
+  /* 设备类型 -> 默认参与合成的轴功能 (其它功能只有手动绑定后才参与) */
+  var KIND_FUNCS = {
+    stick: { pitch: 1, roll: 1, yaw: 1, throttle: 1, hat: 1 },
+    hotas: { pitch: 1, roll: 1, yaw: 1, throttle: 1, throttle2: 1, hat: 1 },
+    other: { pitch: 1, roll: 1, yaw: 1, throttle: 1, hat: 1 },
+    throttle: { throttle: 1, throttle2: 1, hat: 1 },
+    pedals: { yaw: 1, brakeL: 1, brakeR: 1 }
+  };
+  /* 合成优先级 (数值大者优先; 手动绑定到「非本类型」功能的轴 = 0) */
+  var RANK = {
+    pitch: { stick: 3, hotas: 2, other: 1 },
+    roll: { stick: 3, hotas: 2, other: 1 },
+    yaw: { pedals: 3, stick: 2, hotas: 2, other: 2, throttle: 1 },
+    throttle: { throttle: 3, hotas: 2, stick: 1, other: 1 },
+    throttle2: { throttle: 3, hotas: 2, stick: 1, other: 1 },
+    brakeL: { pedals: 3 }, brakeR: { pedals: 3 },
+    hat: { stick: 3, hotas: 2, other: 1, throttle: 1 }
+  };
+  var KIND_NAMES = { stick: '侧杆 / 摇杆', hotas: 'HOTAS (杆 + 油门)', other: '摇杆 (通用)', throttle: '油门台', pedals: '脚舵 (方向舵踏板)' };
+
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
 
   function load() {
@@ -42,26 +69,42 @@
     try { global.localStorage.setItem(KEY, JSON.stringify(all)); } catch (e) { /* */ }
   }
 
+  /** 按设备名猜测设备类型 */
+  function guessKind(id) {
+    id = String(id || '');
+    if (/rudder|pedal|tfrp|tpr|t-rudder|skywalker/i.test(id)) return 'pedals';
+    // 注意: 不能用 /thr/ —— 会把 "Thrustmaster" 的摇杆也当成油门台
+    if (/\bthrottle\b|quadrant|tca q/i.test(id) && !/stick|joystick/i.test(id)) return 'throttle';
+    if (/stick|yoke/i.test(id)) return 'stick';
+    if (/hotas|x-?52|x-?56/i.test(id)) return 'hotas';
+    return 'other';
+  }
+
   /** 按设备名猜测默认映射 */
   function defaultProfile(pad) {
     var id = (pad && pad.id) || '', n = pad && pad.axes ? pad.axes.length : 0;
     var p = {
       axes: { pitch: { axis: -1, invert: true }, roll: { axis: -1, invert: false }, yaw: { axis: -1, invert: false },
         throttle: { axis: -1, invert: true }, throttle2: { axis: -1, invert: true },
+        brakeL: { axis: -1, invert: false }, brakeR: { axis: -1, invert: false },
         hat: { axis: n > 9 ? 9 : -1, invert: false } },
       deadzone: 0.05, sensitivity: 1.0, curve: 1.3,
       buttons: { apDisconnect: -1, ptt: -1, brakes: -1, gearToggle: -1, flapsUp: -1, flapsDown: -1, viewNext: -1, throttleToggleRev: -1 },
-      guessed: true
+      guessed: true, schema: SCHEMA
     };
-    if (/quadrant|throttle|tca q|tq|thr/i.test(id) && !/stick|hotas warthog joystick/i.test(id)) {
+    p.kind = guessKind(id);
+    if (p.kind === 'pedals') {
+      // 脚舵: Rz (Chrome/Edge 在 Windows 上固定为轴 5) = 方向舵, X/Y (轴 0/1) = 左/右趾刹; 不映射俯仰/横滚
+      p.axes.hat.axis = -1;
+      if (n > 5) p.axes.yaw.axis = 5; else if (n > 2) p.axes.yaw.axis = 2;
+      if (n > 0) p.axes.brakeL.axis = 0;
+      if (n > 1) p.axes.brakeR.axis = 1;
+    } else if (p.kind === 'throttle') {
       // 油门台: 前两个轴为两根油门杆
-      p.kind = 'throttle';
       if (n > 0) p.axes.throttle.axis = 0;
       if (n > 1) p.axes.throttle2.axis = 1;
-      p.buttons.throttleToggleRev = -1;
     } else {
-      // 侧杆 / 普通摇杆: X=横滚, Y=俯仰, 扭转 (Rz) 常见于第 5 或第 2 个轴, 滑块油门
-      p.kind = 'stick';
+      // 侧杆 / HOTAS / 普通摇杆: X=横滚, Y=俯仰, 扭转 (Rz) 常见于第 5 或第 2 个轴, 滑块油门
       if (n > 0) p.axes.roll.axis = 0;
       if (n > 1) p.axes.pitch.axis = 1;
       if (n > 5) { p.axes.yaw.axis = 5; if (n > 6) p.axes.throttle.axis = 6; else p.axes.throttle.axis = 2; }
@@ -78,11 +121,58 @@
     return p;
   }
 
+  /** 0.4.0 及以前的默认轴映射 (仅用于迁移: 判断旧配置里哪些轴是用户手动改过的) */
+  function legacyDefaultAxes(pad) {
+    var id = (pad && pad.id) || '', n = pad && pad.axes ? pad.axes.length : 0;
+    var a = { pitch: -1, roll: -1, yaw: -1, throttle: -1, throttle2: -1, hat: n > 9 ? 9 : -1 };
+    if (/quadrant|throttle|tca q|tq|thr/i.test(id) && !/stick|hotas warthog joystick/i.test(id)) {
+      if (n > 0) a.throttle = 0;
+      if (n > 1) a.throttle2 = 1;
+    } else {
+      if (n > 0) a.roll = 0;
+      if (n > 1) a.pitch = 1;
+      if (n > 5) { a.yaw = 5; a.throttle = n > 6 ? 6 : 2; }
+      else if (n > 3) { a.yaw = 3; a.throttle = 2; }
+      else if (n > 2) a.yaw = 2;
+    }
+    return a;
+  }
+
+  /** 旧配置迁移: 自动猜测的 (guessed) 直接按新规则重建; 用户改过的保留, 只补字段 */
+  function migrate(old, pad) {
+    var p, k;
+    if (!old || !old.axes) return defaultProfile(pad);
+    if (old.guessed !== false) {
+      p = defaultProfile(pad);
+      // 滑块调整不会清除 guessed 标记, 这些值照样保留
+      ['deadzone', 'sensitivity', 'curve', 'forceJoystick'].forEach(function (f) { if (old[f] !== undefined) p[f] = old[f]; });
+      return p;
+    }
+    p = old;
+    p.kind = guessKind(pad && pad.id);
+    var leg = legacyDefaultAxes(pad), used = {};
+    for (k in p.axes) {
+      if (!p.axes.hasOwnProperty(k)) continue;
+      var c = p.axes[k];
+      // 与旧版默认值不同的绑定 = 用户手动绑定, 无论设备类型都参与合成
+      if (c && c.axis >= 0 && c.manual === undefined) c.manual = !(k in leg) || leg[k] !== c.axis;
+      if (c && c.axis >= 0 && c.manual) used[c.axis] = true;
+    }
+    var n = pad && pad.axes ? pad.axes.length : 0;
+    if (!p.axes.hat) p.axes.hat = { axis: -1, invert: false };
+    if (!p.axes.brakeL) p.axes.brakeL = { axis: p.kind === 'pedals' && n > 0 && !used[0] ? 0 : -1, invert: false };
+    if (!p.axes.brakeR) p.axes.brakeR = { axis: p.kind === 'pedals' && n > 1 && !used[1] ? 1 : -1, invert: false };
+    p.schema = SCHEMA;
+    return p;
+  }
+
   var Joystick = {
     all: load(),
-    state: {},          // id -> {btn:[], lastThr, lastThr2}
+    state: {},          // id -> {btn:[], lastThr, lastThr2, thrOwned, thr2Owned, brk:{}}
     AXIS_FUNCS: AXIS_FUNCS,
     BUTTON_FUNCS: BUTTON_FUNCS,
+    guessKind: guessKind,
+    defaultProfile: defaultProfile,
     learn: null,        // {id, kind:'axis'|'button', func, base:[], t0}
 
     hasProfile: function (id) { var p = this.all[id]; return !!(p && p.forceJoystick); },
@@ -90,13 +180,25 @@
     profile: function (pad) {
       var p = this.all[pad.id];
       if (!p) { p = defaultProfile(pad); this.all[pad.id] = p; }
-      if (!p.axes.hat) p.axes.hat = { axis: -1, invert: false };     // 旧版本保存的配置没有苦力帽
+      else if (p.schema !== SCHEMA) { p = migrate(p, pad); this.all[pad.id] = p; this.saveAll(); }
+      if (!p.axes.hat) p.axes.hat = { axis: -1, invert: false };
+      if (!p.axes.brakeL) p.axes.brakeL = { axis: -1, invert: false };
+      if (!p.axes.brakeR) p.axes.brakeR = { axis: -1, invert: false };
+      if (!KIND_FUNCS[p.kind]) p.kind = guessKind(pad.id);
       return p;
     },
 
     saveAll: function () { save(this.all); },
 
     reset: function () { this.all = {}; this.state = {}; save(this.all); },
+
+    /** 该设备的该轴功能是否参与合成, 返回优先级 (-1 = 不参与) */
+    _rank: function (prof, func) {
+      var c = prof.axes[func];
+      if (!c || c.axis < 0) return -1;
+      if (KIND_FUNCS[prof.kind] && KIND_FUNCS[prof.kind][func]) return (RANK[func] && RANK[func][prof.kind]) || 0;
+      return c.manual ? 0 : -1;
+    },
 
     _axis: function (pad, cfg, prof, centered) {
       if (!cfg || cfg.axis < 0 || cfg.axis >= pad.axes.length) return null;
@@ -111,40 +213,80 @@
       return clamp(v < 0 ? -a : a, -1, 1);
     },
 
+    /** 趾刹轴 -> 0..1。首次读数作为静止位置 (静止在 +1 端的踏板自动反向);
+        只有踏板动过之后才生效, 避免未接线 / 居中的轴把刹车一直踩住 */
+    _brake: function (pad, cfg, st, key) {
+      if (!cfg || cfg.axis < 0 || cfg.axis >= pad.axes.length) return null;
+      var v = pad.axes[cfg.axis] || 0;
+      if (cfg.invert) v = -v;
+      var b = st.brk[key];
+      if (!b || b.axis !== cfg.axis || b.inv !== !!cfg.invert) b = st.brk[key] = { axis: cfg.axis, inv: !!cfg.invert, rest: v, armed: false };
+      if (!b.armed && Math.abs(v - b.rest) > 0.15) b.armed = true;
+      if (!b.armed) return 0;
+      var val = Math.abs(v - (b.rest > 0.8 ? 1 : -1)) / 2;
+      return val < 0.05 ? 0 : clamp(val, 0, 1);
+    },
+
     /** 读取所有非标准设备, 返回合成结果; 同时把按钮动作推给 input */
     read: function (pads, input) {
-      var out = { hasStick: false, hasYaw: false, hasThrottle: false, hasThrottle2: false,
-        pitch: 0, roll: 0, yaw: 0, throttle: 0, throttle2: null, throttleMoved: false, held: {}, devices: pads.length };
-      var i, k;
+      var out = { hasStick: false, hasYaw: false, hasThrottle: false, hasThrottle2: false, hasBrakes: false,
+        pitch: 0, roll: 0, yaw: 0, throttle: 0, throttle2: null, throttleMoved: false, throttle2Moved: false,
+        brakeL: 0, brakeR: 0, brake: 0, held: {}, devices: pads.length, src: {} };
+      var best = {}, i, k, r;
+      function offer(func, rank, val, idx) {
+        var b = best[func];
+        // 优先级高者胜; 同级时取偏转较大者 (不会被另一台设备的零值覆盖)
+        if (!b || rank > b.rank || (rank === b.rank && Math.abs(val) > Math.abs(b.val))) best[func] = { rank: rank, val: val, idx: idx };
+      }
+      // 油门: 已被推动 (接管) 的设备优先, 其次按设备类型优先级
+      function offerThr(func, rank, owned, val, idx) {
+        var b = best[func], key = (owned ? 100 : 0) + rank;
+        if (!b || key > b.key) best[func] = { key: key, val: val, idx: idx };
+      }
+      var states = [];
       for (i = 0; i < pads.length; i++) {
         var pad = pads[i], prof = this.profile(pad);
         var st = this.state[pad.id] || (this.state[pad.id] = { btn: [], lastThr: null, lastThr2: null });
-        var A = prof.axes;
-        var pv = this._axis(pad, A.pitch, prof, true), rv = this._axis(pad, A.roll, prof, true);
-        if (pv !== null || rv !== null) {
-          out.hasStick = true;
-          if (pv !== null) out.pitch = pv;
-          if (rv !== null) out.roll = rv;
+        if (!st.brk) st.brk = {};
+        states[i] = st;
+        var A = prof.axes, v;
+        ['pitch', 'roll', 'yaw'].forEach(function (f) {
+          var rk = this._rank(prof, f);
+          if (rk < 0) return;
+          var val = this._axis(pad, A[f], prof, true);
+          if (val !== null) offer(f, rk, val, i);
+        }, this);
+        // 油门 1 / 2: 每台设备各自跟踪「是否被推动过」, 推动后才接管
+        r = this._rank(prof, 'throttle');
+        v = r < 0 ? null : this._axis(pad, A.throttle, prof, false);
+        if (v !== null) {
+          var t01 = (v + 1) / 2;
+          if (st.lastThr === null || Math.abs(t01 - st.lastThr) > 0.01) { if (st.lastThr !== null) st.thrOwned = true; st.lastThr = t01; }
+          offerThr('throttle', r, !!st.thrOwned, t01, i);
         }
-        var yv = this._axis(pad, A.yaw, prof, true);
-        if (yv !== null) { out.hasYaw = true; out.yaw = yv; }
-        var tv = this._axis(pad, A.throttle, prof, false);
-        if (tv !== null) {
-          var t01 = (tv + 1) / 2;
-          out.hasThrottle = true; out.throttle = t01;
-          if (st.lastThr === null || Math.abs(t01 - st.lastThr) > 0.01) { if (st.lastThr !== null) out.throttleMoved = true; st.lastThr = t01; }
-          if (st.thrOwned) out.throttleMoved = true;
-          if (out.throttleMoved) st.thrOwned = true;
+        r = this._rank(prof, 'throttle2');
+        v = r < 0 ? null : this._axis(pad, A.throttle2, prof, false);
+        if (v !== null) {
+          var t02 = (v + 1) / 2;
+          if (st.lastThr2 === null || Math.abs(t02 - st.lastThr2) > 0.01) { if (st.lastThr2 !== null) st.thr2Owned = true; st.lastThr2 = t02; }
+          offerThr('throttle2', r, !!st.thr2Owned, t02, i);
         }
-        var t2 = this._axis(pad, A.throttle2, prof, false);
-        if (t2 !== null) { out.hasThrottle2 = true; out.throttle2 = (t2 + 1) / 2; }
+        // 趾刹
+        ['brakeL', 'brakeR'].forEach(function (f) {
+          if (this._rank(prof, f) < 0) return;
+          var bv = this._brake(pad, A[f], st, f);
+          if (bv === null) return;
+          out.hasBrakes = true;
+          if (bv > out[f]) out[f] = bv;
+        }, this);
         // 苦力帽: Chrome/Edge 把 HID 帽子开关报告为一个轴, 上 = -1, 顺时针每 45° +2/7, 中立 ≈ +1.29
-        if (A.hat && A.hat.axis >= 0 && A.hat.axis < pad.axes.length) {
+        r = this._rank(prof, 'hat');
+        if (r >= 0 && A.hat.axis < pad.axes.length) {
           var hv = pad.axes[A.hat.axis];
           if (hv >= -1.05 && hv <= 1.05) {
             var hi = Math.round((hv + 1) * 3.5) % 8;
             var HX = [0, 1, 1, 1, 0, -1, -1, -1], HY = [-1, -1, 0, 1, 1, 1, 0, -1];
-            out.hat = { x: HX[hi] * (A.hat.invert ? -1 : 1), y: HY[hi] };
+            if (!out.hat || r > out._hatRank) { out.hat = { x: HX[hi] * (A.hat.invert ? -1 : 1), y: HY[hi] }; out._hatRank = r; }
           }
         }
         // 按钮
@@ -158,11 +300,22 @@
         for (k = 0; k < pad.buttons.length; k++) st.btn[k] = !!(pad.buttons[k] && pad.buttons[k].pressed);
         if (this.learn && this.learn.id === pad.id) this._learnStep(pad);
       }
-      // 键盘油门被使用时, 摇杆油门交出控制权, 直到再次推动
-      if (input && (input.isDown('throttleUp') || input.isDown('throttleDown'))) {
-        for (k in this.state) if (this.state.hasOwnProperty(k)) this.state[k].thrOwned = false;
-        out.throttleMoved = false;
+      delete out._hatRank;
+      if (best.pitch) { out.hasStick = true; out.pitch = best.pitch.val; out.src.pitch = pads[best.pitch.idx].id; }
+      if (best.roll) { out.hasStick = true; out.roll = best.roll.val; out.src.roll = pads[best.roll.idx].id; }
+      if (best.yaw) { out.hasYaw = true; out.yaw = best.yaw.val; out.src.yaw = pads[best.yaw.idx].id; }
+      // 键盘油门被使用时, 摇杆油门 (两根杆) 交出控制权, 直到再次推动
+      var kbThr = input && (input.isDown('throttleUp') || input.isDown('throttleDown'));
+      if (kbThr) for (k in this.state) if (this.state.hasOwnProperty(k)) { this.state[k].thrOwned = false; this.state[k].thr2Owned = false; }
+      if (best.throttle) {
+        out.hasThrottle = true; out.throttle = best.throttle.val; out.src.throttle = pads[best.throttle.idx].id;
+        out.throttleMoved = !!states[best.throttle.idx].thrOwned;
       }
+      if (best.throttle2) {
+        out.hasThrottle2 = true; out.throttle2 = best.throttle2.val; out.src.throttle2 = pads[best.throttle2.idx].id;
+        out.throttle2Moved = !!states[best.throttle2.idx].thr2Owned;
+      }
+      out.brake = Math.max(out.brakeL, out.brakeR);
       var ptt = !!out.held.ptt, pe = global.document && global.document.getElementById('ptt-indicator');
       if (pe) pe.classList.toggle('hidden', !ptt);
       if (ptt !== this._ptt) { this._ptt = ptt; if (FS.Bus) FS.Bus.emit('radio:ptt', { on: ptt }); }
@@ -184,7 +337,7 @@
           if (dlt > bd) { bd = dlt; best = i; }
         }
         if (best >= 0) {
-          prof.axes[L.func].axis = best; prof.guessed = false;
+          prof.axes[L.func].axis = best; prof.axes[L.func].manual = true; prof.guessed = false;
           this.learn = null; this.saveAll(); this._refreshPanel(true);
         }
       } else {
@@ -246,7 +399,7 @@
           var d = doc.createElement('div');
           d.className = 'joy-dev';
           var h = '<div class="joy-head"><b>' + escapeHtml(pad.id) + '</b>' +
-            '<span class="joy-tag">' + (std ? '标准手柄 (自动映射)' : (prof.kind === 'throttle' ? '油门台' : '摇杆 / 侧杆')) + '</span>' +
+            '<span class="joy-tag">' + (std ? '标准手柄 (自动映射)' : (KIND_NAMES[prof.kind] || '摇杆')) + '</span>' +
             '<label class="joy-chk"><input type="checkbox" data-force="1"' + (prof.forceJoystick ? ' checked' : '') + '> 按摇杆方式映射</label></div>';
           h += '<div class="joy-live" data-live="' + pad.index + '"></div>';
           if (!std) {
@@ -283,7 +436,7 @@
           d.addEventListener('change', function (ev) {
             var t = ev.target, ds = t.dataset;
             if (ds.force) prof.forceJoystick = t.checked;
-            if (ds.axis) prof.axes[ds.axis].axis = parseInt(t.value, 10);
+            if (ds.axis) { prof.axes[ds.axis].axis = parseInt(t.value, 10); prof.axes[ds.axis].manual = prof.axes[ds.axis].axis >= 0; }
             if (ds.inv) prof.axes[ds.inv].invert = t.checked;
             if (ds.btn) prof.buttons[ds.btn] = parseInt(t.value, 10);
             prof.guessed = false;

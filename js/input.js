@@ -142,6 +142,7 @@
       pitch: 0, roll: 0, yaw: 0,
       throttle: 0.06, throttleL: 0.06, throttleR: 0.06
     };
+    this.brakeAxis = 0;            // 脚舵趾刹 0..1 (0.4.1)
     this.axisTargets = { pitch: 0, roll: 0, yaw: 0 };
     this.axisRate = 4.2;           // 杆量每秒行程 (侧杆全行程约 0.5 秒)
     this.axisCenterRate = 5.5;     // 回中速度
@@ -515,7 +516,10 @@
     // 摇杆/油门台的油门轴: 只有在轴被推动时才接管 (键盘仍可用)
     if (joy && joy.hasThrottle && joy.throttleMoved) this.axes.throttle = U.clamp01(joy.throttle);
     this.axes.throttleL = this.axes.throttle;
-    this.axes.throttleR = (joy && joy.hasThrottle2 && joy.throttle2 !== null) ? U.clamp01(joy.throttle2) : this.axes.throttle;
+    // 0.4.1: 油门 2 与油门 1 相同 —— 只有第二根杆被推动后才接管; 键盘油门 / A/THR 同步后不再一直被它顶回去
+    this.axes.throttleR = (joy && joy.hasThrottle2 && joy.throttle2 !== null && joy.throttle2Moved) ? U.clamp01(joy.throttle2) : this.axes.throttle;
+    // 0.4.1: 脚舵趾刹 (连续量 0..1), 由 main.js 与「按住刹车」取较大值
+    this.brakeAxis = (joy && joy.hasBrakes) ? U.clamp01(joy.brake) : 0;
 
     // 鼠标滚轮: 驾驶舱内微调油门; 外部视角由相机用来缩放
     if (this.mouse.wheel !== 0 && this.wheelThrottle !== false) {

@@ -486,6 +486,7 @@
           <table class="help-table">
             <tr><td>Xbox/PS 手柄</td><td>左摇杆 = 杆，LB/RB = 方向舵，LT/RT = 油门，A 起落架，X 刹车，Y 视角，十字键 襟翼</td></tr>
             <tr><td>飞行摇杆 / TCA</td><td>顶栏 🕹 摇杆 或 菜单"摇杆设置"中映射轴与按钮（AP 断开 / PTT / 刹车）；Chrome/Edge 需先按一下摇杆按钮</td></tr>
+            <tr><td>脚舵 (方向舵踏板)</td><td>自动识别为脚舵：踏板 = 方向舵，左/右趾刹 = 刹车，不会占用俯仰/横滚；与摇杆同时连接时方向舵以脚舵为准</td></tr>
           </table>
         </div>
 
@@ -524,7 +525,8 @@
     <div class="overlay-box overlay-box-wide">
       <h2>摇杆设置</h2>
       <p class="ov-sub">JOYSTICK / SIDESTICK / THROTTLE QUADRANT (Gamepad API)</p>
-      <p class="joy-note">支持 Thrustmaster TCA 空客侧杆、TCA 油门台 (Quadrant) 及其他 HID 飞行摇杆。
+      <p class="joy-note">支持 Thrustmaster TCA 空客侧杆、TCA 油门台 (Quadrant)、方向舵脚舵及其他 HID 飞行摇杆。
+        每台设备只使用与其类型相符的轴 (或你手动绑定的轴); 多台设备同时连接时, 俯仰/横滚以侧杆为准, 方向舵以脚舵为准。
         <b>Chrome / Edge 需要先按一下摇杆上的任意按钮 (或动一下轴), 浏览器才会把设备报告给网页。</b>
         设置自动保存在本机浏览器 (localStorage)。</p>
       <div id="joy-devices" class="joy-devices"></div>

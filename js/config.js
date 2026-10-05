@@ -12,7 +12,7 @@
      1. 模拟器全局设置
      --------------------------------------------------------------------- */
   FS.CFG = {
-    version: '0.4.0-beta',
+    version: '0.4.1-beta',
     // beta 0.3: 联网全球地景 (真实高程 + 卫星影像), 菜单 / ?online=0|1 / localStorage 'fs.onlineScenery'
     onlineScenery: (function () {
       try { var v = global.localStorage && global.localStorage.getItem('fs.onlineScenery'); if (v === '0') return false; } catch (e) { /* */ }

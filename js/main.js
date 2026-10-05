@@ -999,7 +999,7 @@
     }
 
     // 刹车
-    var braking = input.isDown('brakes') ? 1 : 0;
+    var braking = Math.max(input.isDown('brakes') ? 1 : 0, input.brakeAxis || 0);   // 0.4.1: 脚舵趾刹为连续量
     fm.setBrakes(braking);
 
     // 配平 (Home 低头 / End 抬头); 电传机型在正常法则下仍会自动配平
