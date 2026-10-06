@@ -1461,9 +1461,19 @@
     if (st.antiSkid) list.push({ t: 'ANTI SKID', c: COL.green, level: 1 });
     if (st.parkingBrake) list.push({ t: 'PARK BRK', c: COL.green, level: 1 });
     if (st.wow && st.tas < 3) list.push({ t: 'WOW', c: COL.green, level: 1 });
+    // beta 0.4.2: 冷舱启动系统备忘 (APU / IR 对准 / 起动条件 / 下一步提示)
+    var sm = st.sys && st.sys.memo;
+    if (sm && sm.length) {
+      var amb = sm.filter(function (m) { return m.level >= 2; }), rest = sm.filter(function (m) { return m.level < 2; });
+      list = list.filter(function (m) { return m.level >= 2; }).concat(amb.map(function (m) { return { t: m.t, c: COL.amber, level: 2 }; }), list.filter(function (m) { return m.level < 2; }),
+        rest.map(function (m) { return { t: m.t, c: m.c === 'cyan' ? COL.cyan : (m.c === 'amber' ? COL.amber : COL.green), level: 1 }; }));
+      // 下一步提示放在最后一行, 保证可见
+      var nx = list.filter(function (m) { return m.t.charAt(0) === '▶'; });
+      if (nx.length) { list = list.filter(function (m) { return m.t.charAt(0) !== '▶'; }).slice(0, 5).concat(nx); }
+    }
 
     var y0 = H - 190;
-    for (var k = 0; k < Math.min(list.length, 5); k++) {
+    for (var k = 0; k < Math.min(list.length, 6); k++) {
       var m = list[k];
       var yy = y0 + k * 26;
       if (m.level >= 2) {
@@ -1480,7 +1490,8 @@
     // 状态行
     var statusY = H - 8;
     txt(ctx, st.onGround ? 'ON GROUND' : 'AIRBORNE', 36, statusY, 13, COL.green, 'left', 'normal');
-    txt(ctx, 'APU ' + (st.apuRunning ? 'AVAIL' : 'OFF'), 200, statusY, 13,
+    var apuTxt = st.apuAvail || (st.apuRunning && st.apuAvail === undefined) ? 'AVAIL' : (st.apuRunning ? 'START' : 'OFF');
+    txt(ctx, 'APU ' + apuTxt, 200, statusY, 13,
       st.apuRunning ? COL.green : COL.grey, 'left', 'normal');
     txt(ctx, 'SAT ' + st.ambientT.toFixed(0) + '°C', 340, statusY, 13, COL.green, 'left', 'normal');
   };

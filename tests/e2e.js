@@ -84,7 +84,8 @@ var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A321neo', 'A330-300', 'B737-80
     await sleep(3000);
   }
 
-  var ONLY = process.env.ONLY || '12345';   // 例: ONLY=4 只运行 beta 0.3 部分
+  var ONLY = process.env.ONLY || '12345';
+  var coldJobs = [];   // 例: ONLY=4 只运行 beta 0.3 部分
   console.log('\n无头 Chrome E2E —— ' + BASE + '\n\n[1] 主菜单 / 致谢面板');
   if (ONLY.indexOf('1') >= 0) await job('主菜单 + 致谢面板', '', async function (page) {
     await page.waitForSelector('#main-menu:not(.hidden)', { timeout: 60000 });
@@ -317,13 +318,18 @@ var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A321neo', 'A330-300', 'B737-80
       var sim = FS.sim, c = sim.cockpit3d, fm = sim.fm, out = [];
       function ctl(id) { var e = c.ctlById[id]; if (!e) throw new Error('缺少控件 ' + id); return e.ctl; }
       var need = ['gear', 'throttle1', 'throttle2', 'flap', 'speedbrake', 'apu', 'eng-master-1', 'eng-master-2', 'park-brake', 'autobrake',
-        'light-landing', 'light-taxi', 'light-strobe', 'light-beacon', 'light-nav', 'light-logo', 'light-wing', 'light-cabin', 'sidestick-ap-disc-L'];
+        'light-landing', 'light-taxi', 'light-strobe', 'light-beacon', 'light-nav', 'light-logo', 'light-wing', 'light-cabin', 'light-rwyTurnoff', 'sidestick-ap-disc-L',
+        'elec-bat1', 'elec-bat2', 'elec-ext', 'apu-start', 'apu-bleed', 'adirs-ir1', 'adirs-ir2', 'adirs-ir3', 'fuel-l1', 'fuel-r1', 'eng-mode', 'xpdr', 'tcas'];
       need.forEach(ctl);
       var l0 = !!sim.lights.landing; ctl('light-landing').click(1); if (!!sim.lights.landing === l0) throw new Error('着陆灯开关无效');
       var pb0 = !!fm.parkingBrake; ctl('park-brake').click(1); if (!!fm.parkingBrake === pb0) throw new Error('停留刹车旋钮无效');
       if (document.getElementById('park-brake').classList.contains('on') !== !!fm.parkingBrake) throw new Error('停留刹车侧边面板未同步');
-      ctl('apu').click(1); if (!fm.apuRunning) throw new Error('APU 按钮无效');
-      ctl('eng-master-1').click(1); if (fm.engines[0].state === 'off') throw new Error('发动机主电门 1 无效');
+      // 冷舱: APU MASTER / ENG MASTER 只改变电门位置, 无电时不会起动 (完整流程见下一项)
+      ctl('apu').click(1); if (!fm.sys.sw.apuMaster) throw new Error('APU MASTER 按钮无效'); ctl('apu').click(1);
+      ctl('eng-master-1').click(1); if (!fm.sys.sw.engMaster[0]) throw new Error('发动机主电门 1 无效');
+      for (var k = 0; k < 120; k++) fm.update(1 / 60);
+      if (fm.engines[0].state !== 'off') throw new Error('冷舱无电时主电门 ON 不应起动发动机');
+      ctl('eng-master-1').click(1); if (fm.sys.sw.engMaster[0]) throw new Error('发动机主电门 1 无法关闭');
       var ab0 = fm.autoBrake; ctl('autobrake').click(1); if (fm.autoBrake === ab0) throw new Error('自动刹车旋钮无效');
       fm.setFlapDetent(0); ctl('flap').click(1); if (fm.flapDetentIndex !== 1) throw new Error('襟翼手柄放下无效');
       ctl('flap').click(-1); if (fm.flapDetentIndex !== 0) throw new Error('襟翼手柄右键收上无效');
@@ -349,6 +355,116 @@ var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A321neo', 'A330-300', 'B737-80
     if (s1 === loc.s0) throw new Error('鼠标点击头顶板 STROBE 开关无效 (' + loc.x.toFixed(0) + ', ' + loc.y.toFixed(0) + ')');
     return r.meshControls.length + ' 个三维控件 + ' + r.canvasHotspots + ' 个 FCU/EFIS 热区; 全部动作有效; 鼠标点击 STROBE (' + loc.x.toFixed(0) + ', ' + loc.y.toFixed(0) + ') 生效';
   });
+
+  // beta 0.4.2: 冷舱启动 —— 只用鼠标点击三维驾驶舱热区, 从全黑走到双发运转 (空客 / 波音两套面板)
+  var COLD_SHOTS = process.env.COLD_SHOTS || '';
+  ['A320neo', 'B737-800'].forEach(function (type) { coldJobs.push(type); });
+  for (var cj = 0; cj < coldJobs.length; cj++) await (function (type) {
+    return job('冷舱启动 ' + type + ': 仅鼠标点击三维开关 → 双发运转 + 检查单完成', 'aircraft=' + type + '&scenario=cold-dark&dep=ZGGG&autostart=1&online=0', async function (page) {
+      await started(page);
+      var info = await page.evaluate(function () {
+        var sim = FS.sim, fm = sim.fm, y = fm.sys;
+        if (!y || !y.strict) throw new Error('冷舱场景未进入严格模式');
+        if (y.out.dc || fm.engines.some(function (e) { return e.state !== 'off'; })) throw new Error('冷舱开局应全黑且发动机关闭');
+        sim.cameraRig.panelView = false;
+        return { boeing: y.boeing, maker: sim.cockpit3d.L.maker, nIr: y.nIr };
+      });
+      if ((info.maker === 'boeing') !== info.boeing) throw new Error('驾驶舱布局与系统机型不一致 ' + JSON.stringify(info));
+      var clicks = 0, log = [];
+      async function aimClick(id, button) {
+        var f0 = await page.evaluate(function (id) {
+          var sim = FS.sim, c = sim.cockpit3d, T = c.THREE, r = sim.cameraRig, e = c.ctlById[id];
+          if (!e) throw new Error('缺少控件 ' + id);
+          c.group.updateMatrixWorld(true);
+          var p = new T.Vector3().setFromMatrixPosition(e.mesh.matrixWorld), ep = new T.Vector3(), eq = new T.Quaternion();
+          c.eyeL.getWorldPosition(ep); c.eyeL.getWorldQuaternion(eq);
+          var d = p.sub(ep).applyQuaternion(eq.invert()).normalize();
+          r.headYaw = r.headYawTarget = Math.atan2(-d.x, -d.z);
+          r.headPitch = r.headPitchTarget = Math.atan2(d.y, Math.hypot(d.x, d.z));
+          return sim.renderer.info.render.frame;
+        }, id);
+        await page.waitForFunction(function (f0) { return FS.sim.renderer.info.render.frame >= f0 + 3; }, { timeout: 30000 }, f0);
+        var loc = await page.evaluate(function (id) {
+          var sim = FS.sim, c = sim.cockpit3d, l = c.locateCtl(id, sim.camera), h = c.pick(l.x, l.y, sim.camera);
+          return { x: (l.x + 1) / 2 * innerWidth, y: (1 - l.y) / 2 * innerHeight, same: !!(h && h.ctl === c.ctlById[id].ctl) };
+        }, id);
+        if (!loc.same) throw new Error('热区 ' + id + ' 被遮挡或重叠 (' + loc.x.toFixed(0) + ', ' + loc.y.toFixed(0) + ')');
+        await page.mouse.click(loc.x, loc.y, { button: button || 'left' }); clicks++;
+        await sleep(120);
+      }
+      // 点击直到条件满足 (旋钮可能需要多次)
+      async function step(id, cond, button, max) {
+        for (var n = 0; n < (max || 4); n++) {
+          if (await page.evaluate(cond)) { log.push(id); return; }
+          await aimClick(id, button);
+        }
+        if (!(await page.evaluate(cond))) {
+          var st = await page.evaluate(function () { return JSON.stringify(FS.sim.fm.sys.sw); });
+          throw new Error('点击 ' + id + ' 后状态未达到: ' + cond + ' | sw=' + st);
+        }
+        log.push(id);
+      }
+      async function ff(sec) {
+        await page.evaluate(function (sec) {
+          var sim = FS.sim; sim.paused = true;
+          for (var i = 0; i < sec * 120; i++) sim.fm.update(1 / 120);
+          sim.paused = false;
+        }, sec);
+        await sleep(300);
+      }
+      var S = 'FS.sim.fm.sys.sw', O = 'FS.sim.fm.sys.out';
+      await step('elec-bat1', S + '.bat1'); await step('elec-bat2', S + '.bat2');
+      await step('elec-ext', S + '.extPwr && ' + O + '.ac');
+      for (var i = 0; i < info.nIr; i++) await step('adirs-ir' + (i + 1), S + ".ir[" + i + "] === 'NAV'", 'left', 4);
+      var pumps = ['fuel-l1', 'fuel-l2', 'fuel-c1', 'fuel-c2', 'fuel-r1', 'fuel-r2'];
+      for (var q = 0; q < pumps.length; q++) await step(pumps[q], S + '.pumps[' + q + ']');
+      await step('light-nav', 'FS.sim.lights.nav'); await step('light-beacon', 'FS.sim.lights.beacon');
+      await step('sign-seatbelts', S + '.seatBelts');
+      await step('apu', S + '.apuMaster');
+      await step('apu-start', "FS.sim.fm.sys.apu.state !== 'off'", 'left', 1);
+      await ff(35);
+      if (!(await page.evaluate('FS.sim.fm.apuAvail'))) throw new Error('APU 35 s 后仍未 AVAIL');
+      await step('apu-bleed', S + '.apuBleed && ' + O + '.duct[1]');
+      if (info.boeing) await step('eng-start-sel-2', S + ".engStart[1] === 'GRD'", 'right', 2);
+      else await step('eng-mode', S + ".engMode === 'IGN'", 'left', 2);
+      await step('eng-master-2', S + '.engMaster[1]');
+      await ff(3);
+      if (!(await page.evaluate("FS.sim.fm.engines[1].state !== 'off'"))) throw new Error('ENG 2 未起动: ' + (await page.evaluate('FS.sim.fm.sys.block[1]')));
+      await ff(60);
+      if (info.boeing) await step('eng-start-sel-1', S + ".engStart[0] === 'GRD'", 'right', 2);
+      await step('eng-master-1', S + '.engMaster[0]');
+      await ff(60);
+      if (!info.boeing) await step('eng-mode', S + ".engMode === 'NORM'", 'right', 2);
+      await ff(20);
+      var res = await page.evaluate(function () {
+        var sim = FS.sim, fm = sim.fm, st = fm.getState(); st.lights = sim.lights;
+        var cl = new FS.ChecklistManager(), out = {};
+        ['beforeStart', 'afterStart'].forEach(function (ph) {
+          cl.setPhase(ph); out[ph] = cl.status(st).items.filter(function (x) { return !x.done; }).map(function (x) { return x.key; });
+        });
+        return { eng: fm.engines.map(function (e) { return e.state + ' ' + e.n1.toFixed(1); }), irNav: fm.sys.out.irAllNav, apAvail: fm.sys.out.apAvail,
+          disp: fm.sys.out.disp, open: out,
+          obj: (sim.scenarioMgr.objectives || []).map(function (o) { return (o.done ? '✓' : '·') + (o.text || o.id || ''); }) };
+      });
+      if (!res.eng.every(function (e) { return /^running/.test(e); })) throw new Error('双发未运转 ' + res.eng);
+      if (!res.irNav || !res.apAvail || !res.disp.pfd || !res.disp.nd) throw new Error('IR / 显示 / AP 不可用 ' + JSON.stringify(res));
+      var okBefore = ['autobrake', 'flaps', 'takeoffBriefing', 'parkBrakeOff', 'xpdr', 'tcas', 'strobe', 'landingLight', 'doors'];
+      var missing = res.open.beforeStart.filter(function (k) { return okBefore.indexOf(k) < 0; });
+      if (missing.length) throw new Error('起动前检查单未完成: ' + missing.join(','));
+      var objDone = res.obj.filter(function (o) { return o[0] === '✓'; }).length;
+      if (COLD_SHOTS) {
+        var tag = type.replace(/[^A-Za-z0-9]/g, '');
+        await page.evaluate(function () { var r = FS.sim.cameraRig; r.headYaw = r.headYawTarget = 0; r.headPitch = r.headPitchTarget = 0.85; });
+        await sleep(1200); await page.screenshot({ path: COLD_SHOTS + '/' + tag + '-overhead.png' });
+        await aimClick(info.boeing ? 'eng-master-1' : 'eng-mode', 'middle'); await sleep(1200);
+        await page.screenshot({ path: COLD_SHOTS + '/' + tag + '-pedestal.png' });
+        await page.evaluate(function () { var r = FS.sim.cameraRig; r.headYaw = r.headYawTarget = 0; r.headPitch = r.headPitchTarget = 0; });
+        await sleep(1200); await page.screenshot({ path: COLD_SHOTS + '/' + tag + '-panel.png' });
+      }
+      return clicks + ' 次鼠标点击 (' + log.length + ' 步); 发动机 ' + res.eng.join(' / ') + '; 场景目标 ' + objDone + '/' + res.obj.length +
+        '; 起动后检查单未完成: ' + (res.open.afterStart.join(',') || '无');
+    });
+  })(coldJobs[cj]);
 
   await job('B737-800 驾驶盘 + 抖杆失速保护', 'aircraft=B737-800&scenario=cruise&autostart=1&online=0', async function (page) {
     await started(page);

@@ -503,6 +503,18 @@
               自动刹车选择 LO 或 2。</li>
             <li><b>着陆：</b>50 ft 开始收油门，20 ft 柔和拉平，接地后拉反推并使用方向舵保持中心线。</li>
           </ul>
+          <h3>冷舱启动检查单 <small>COLD &amp; DARK</small></h3>
+          <p class="help-note">主菜单「飞行场景」选「冷舱启动」；其他场景开局时所有开关已在运行位置。全部步骤都可用鼠标点击三维驾驶舱完成（左键正向 / 右键反向 / 滚轮），ECAM 下方青色 ▶ 行提示下一步。</p>
+          <ol class="help-tips">
+            <li><b>电源：</b>头顶板 ELEC — BAT 1 + BAT 2 ON（OFF 灯熄灭），EXT PWR ON（AVAIL → ON），显示器通电。</li>
+            <li><b>ADIRS：</b>IR 1/2/3 旋到 NAV（对准约 75 秒，PFD/ND 显示 ALIGN，对准完成后才有姿态、地图与自动驾驶）。</li>
+            <li><b>燃油 / 灯光：</b>FUEL 6 个泵 ON；EXT LT 打开 BEACON 与 NAV；SIGNS 安全带 ON。</li>
+            <li><b>APU：</b>MASTER SW → START，约 30 秒后 AVAIL；AIR COND 面板 APU BLEED ON（X BLEED 保持 AUTO）。</li>
+            <li><b>起动：</b>操纵台 ENG MODE 旋到 IGN START → ENG MASTER 2 ON，等慢车后 ENG MASTER 1 ON（每台约 40 秒）。</li>
+            <li><b>起动后：</b>ENG MODE 回 NORM，APU BLEED OFF，PACK 1/2 ON，襟翼起飞位，松开停留刹车滑行。</li>
+            <li><b>波音布局</b>（737 / 737 MAX / 777 / 787 / E190）：BATTERY + STBY PWR，GRD PWR，IRS L/R → NAV，燃油泵，APU + START，APU BLEED，ENGINE START 旋到 GRD，FUEL CONTROL → RUN（起动完成后 START 自动回 OFF）。</li>
+          </ol>
+          <p class="help-note">EN: BAT 1+2 ON → EXT PWR ON → IR 1-3 NAV → FUEL PUMPS ON → BEACON ON → APU MASTER, START → APU BLEED ON → ENG MODE IGN/START → ENG MASTER 2, then 1 → MODE NORM, APU BLEED OFF.</p>
           <p class="help-note">
             本模拟器使用真实的六自由度飞行动力学模型：升力/阻力随迎角与马赫数变化、失速与过失速特性、
             地面效应、跨音速阻力发散、起落架弹簧阻尼与轮胎侧偏、发动机转子滞后与高空推力衰减、
@@ -546,6 +558,7 @@
   <script src="js/utils.js"></script>
   <script src="js/config.js"></script>
   <script src="js/airports.js"></script>
+  <script src="js/systems.js"></script>
   <script src="js/flightmodel.js"></script>
   <script src="js/autopilot.js"></script>
   <script src="js/avionics.js"></script>

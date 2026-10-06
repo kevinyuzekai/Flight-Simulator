@@ -359,6 +359,13 @@
       FS.Bus.emit('ap:engageRefused', { reason: this.fm.warnings.stall ? '失速' : '严重超速' });
       return false;
     }
+    // beta 0.4.2: 冷舱启动 — 需要交流电与至少一部 IR 完成 NAV 对准
+    if (this.fm.sys) this.fm.sys._compute(0);   // 重新计算 (开局 / 刚放置后尚未 update)
+    var so = this.fm.sys && this.fm.sys.out;
+    if (so && so.apAvail === false) {
+      FS.Bus.emit('ap:engageRefused', { reason: !so.ac ? '无交流电' : 'IR 未完成对准' });
+      return false;
+    }
     this.silenceDisconnectWarning();
     this._ovrTimer = 0;
     ap.engaged = true;
@@ -511,6 +518,7 @@
 
     this.updateFMS(dt);
     this._checkProtections(dt);
+    if (ap.engaged && fm.sys && fm.sys.out && fm.sys.out.apAvail === false) this.disengage(fm.sys.out.ac ? 'IR 失效' : '交流电失效');
 
     // 手动操纵杆超控 (beta 0.4): 必须「持续」推杆才断开 AP, 瞬时碰杆 / 鼠标调参不算。
     //  fm.pilotOverrideMag = 摇杆/手柄/键盘/触摸的杆量 0..1 (不含鼠标驾驶杆, 由 main.js 提供)

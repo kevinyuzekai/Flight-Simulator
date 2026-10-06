@@ -412,6 +412,9 @@
     this.packOn = true;
     this.wingAntiIce = false;
     this.engineAntiIce = [false, false];
+    this.apuAvail = false;
+    /** beta 0.4.2: 冷舱启动系统 (电源 / APU / 引气 / ADIRS / 燃油 / 液压), 默认全部在运行位置 */
+    this.sys = FS.AircraftSystems ? new FS.AircraftSystems(this) : null;
 
     /* ---- 告警 ---- */
     this.warnings = {
@@ -679,18 +682,23 @@
   FlightModel.prototype.setAutoBrake = function (mode) { this.autoBrake = mode; };
 
   FlightModel.prototype.startEngine = function (idx) {
+    // beta 0.4.2: 经由系统逻辑 (ENG MASTER ON; 冷舱场景需满足引气 / 燃油 / 起动选择条件)
+    if (this.sys) { this.sys.setEngMaster(idx, true); this._log('发动机启动 ' + (idx === 'all' ? '全部' : idx)); return; }
     if (idx === 'all') { for (var i = 0; i < this.engines.length; i++) this.engines[i].commandStart(true); }
     else if (this.engines[idx]) this.engines[idx].commandStart(false);
     this._log('发动机启动 ' + (idx === 'all' ? '全部' : idx));
   };
   FlightModel.prototype.shutdownEngine = function (idx) {
+    if (this.sys) { this.sys.setEngMaster(idx, false); return; }
     if (idx === 'all') { for (var i = 0; i < this.engines.length; i++) this.engines[i].commandShutdown(); }
     else if (this.engines[idx]) this.engines[idx].commandShutdown();
   };
   FlightModel.prototype.startAPU = function () {
+    if (this.sys) return this.sys.legacyStartApu();       // MASTER + START (需要直流电)
     if (!this.apuRunning) { this.apuRunning = true; this.apuTimer = 0; FS.Bus.emit('fm:apuStart'); }
+    return true;
   };
-  FlightModel.prototype.stopAPU = function () { this.apuRunning = false; };
+  FlightModel.prototype.stopAPU = function () { if (this.sys) this.sys.stopApu(); else this.apuRunning = false; };
 
   FlightModel.prototype.setReverser = function (idx, on) {
     if (idx === 'all') { for (var i = 0; i < this.engines.length; i++) this.engines[i].reverserArmed = on; }
@@ -1393,7 +1401,11 @@
     this.updateAtmosphere(atm, altM);
 
     /* ---- 2. 系统状态 ---- */
-    if (this.apuRunning) {
+    if (this.sys) {
+      this.sys.update(dt);
+      if (this.apuAvail && !this._apuStarted) { this._apuStarted = true; FS.Bus.emit('fm:apuReady'); }
+      if (!this.apuRunning) this._apuStarted = false;
+    } else if (this.apuRunning) {
       this.apuTimer += dt;
       if (this.apuTimer > 1 && !this._apuStarted) {
         this._apuStarted = true;
@@ -1407,6 +1419,8 @@
     /* ---- 4. 构型动画 ---- */
     var gearRate = 1 / 22;                 // 起落架收放约 22 秒
     var prevGear = this.gearPos;
+    var sysO = this.sys && this.sys.out;
+    if (sysO && sysO.gearHyd === false) gearRate = 0;      // 无液压: 起落架不动 (ECAM 有提示)
     this.gearPos = U.moveTowards(this.gearPos, this.gearCmd, gearRate * dt);
     if (prevGear !== this.gearPos) {
       if (prevGear > 0.98 && this.gearPos <= 0.98) FS.Bus.emit('fm:gearInTransit', { direction: 'up' });
@@ -1414,7 +1428,7 @@
     }
 
     // 襟翼/缝翼作动 (A350 全行程约 25 秒)
-    var flapRate = 1 / 25;
+    var flapRate = (sysO && sysO.flapHyd === false) ? 0 : 1 / 25;   // 无液压: 襟翼停在原位
     var prevFlap = this.flapPos;
     this.flapPos = U.moveTowards(this.flapPos, this.flapCmd, flapRate * dt);
     this.slatPos = U.moveTowards(this.slatPos, FS.Aero.flapAt(ac, this.flapCmd).slat, flapRate * 1.35 * dt);
@@ -1840,6 +1854,8 @@
       wind: { dir: this.windDir, speed: this.windSpeed, gust: this.gust, turbulence: this.turbulence },
       ambientT: this.ambientT,
       apuRunning: this.apuRunning,
+      apuAvail: this.apuAvail,
+      sys: this.sys ? this.sys.snapshot() : null,
       ap: this.ap,
       controlLaw: this.controlLaw,
       groundSpoilers: this.groundSpoilers,

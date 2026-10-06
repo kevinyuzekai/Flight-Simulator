@@ -575,7 +575,7 @@
     // APU
     btn('apu-btn', function () {
       if (sim.fm.apuRunning) { sim.fm.stopAPU(); self.notify('APU 停车', 'info'); }
-      else { sim.fm.startAPU(); self.notify('APU 起动中, 约 60 秒后可用', 'info'); }
+      else if (sim.fm.startAPU() !== false) self.notify('APU 起动中, 约 30 秒后可用', 'info');
       $('apu-btn').classList.toggle('on', sim.fm.apuRunning);
     });
 
@@ -583,8 +583,8 @@
     for (var i = 0; i < 2; i++) {
       (function (idx) {
         btn('eng-start-' + (idx + 1), function () {
-          var e = sim.fm.engines[idx];
-          if (e.state === 'off') { sim.fm.startEngine(idx); self.notify('发动机 ' + (idx + 1) + ' 起动中', 'info'); }
+          var e = sim.fm.engines[idx], sy = sim.fm.sys;
+          if (sy ? !sy.sw.engMaster[idx] : e.state === 'off') { sim.fm.startEngine(idx); self.notify('发动机 ' + (idx + 1) + ' 起动中', 'info'); }
           else { sim.fm.shutdownEngine(idx); self.notify('发动机 ' + (idx + 1) + ' 关车', 'info'); }
         });
       })(i);

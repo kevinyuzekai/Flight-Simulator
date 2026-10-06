@@ -18,10 +18,13 @@
     beforeStart: {
       name: '起动前', nameEn: 'BEFORE START',
       items: [
-        { text: '电池 / 电源 ........................ ON', key: 'battery' },
-        { text: 'APU 主开关 .......................... ON', key: 'apu' },
-        { text: 'APU 引气 ............................ ON', key: 'apu' },
+        { text: '电瓶 BAT 1 / BAT 2 .................. ON', key: 'battery' },
+        { text: '外部电源 / APU 发电 ................. ON', key: 'acPower' },
+        { text: 'ADIRS (IR 1/2/3) .................... NAV', key: 'adirs' },
+        { text: 'APU 主开关 / START .................. ON', key: 'apu' },
+        { text: 'APU 引气 ............................ ON', key: 'apuBleed' },
         { text: '燃油泵 .............................. ON', key: 'pumps' },
+        { text: '安全带灯 ............................ ON', key: 'seatbelt' },
         { text: '防冰 ................................ AS RQRD', key: 'antiice' },
         { text: '航行灯 / 信标灯 ..................... ON', key: 'beacon' },
         { text: '自动驾驶 / 飞行指引 ................. OFF', key: 'apoff' },
@@ -32,6 +35,8 @@
     afterStart: {
       name: '起动后', nameEn: 'AFTER START',
       items: [
+        { text: 'ENG MODE / ENG START ................ NORM', key: 'engModeNorm' },
+        { text: '液压 ................................ 正常', key: 'hydOk' },
         { text: 'APU 引气 ............................ OFF', key: 'apuBleedOff' },
         { text: '空调 / 增压 ......................... ON', key: 'packs' },
         { text: '发动机防冰 .......................... AS RQRD', key: 'engAntiIce' },
@@ -122,19 +127,26 @@
      二、自动检查单判定 (依据飞机状态自动勾选)
      ===================================================================== */
   var CHECK_FN = {
-    battery: function (s) { return true; },
-    apu: function (s) { return s.apuRunning; },
-    pumps: function (s) { return true; },
+    // beta 0.4.2: 由三维驾驶舱开关驱动 (无系统数据时按旧版视为完成)
+    battery: function (s) { return !s.sys || (s.sys.bat1 && s.sys.bat2); },
+    acPower: function (s) { return !s.sys || s.sys.ac; },
+    adirs: function (s) { return !s.sys || s.sys.irModes.every(function (m) { return m === 'NAV'; }); },
+    apu: function (s) { return s.sys ? (s.sys.apuMaster && s.sys.apuState !== 'off') : s.apuRunning; },
+    apuBleed: function (s) { return s.sys ? s.sys.apuBleedOn : s.apuRunning; },
+    pumps: function (s) { return !s.sys || [0, 1, 4, 5].every(function (i) { return s.sys.pumps[i]; }); },
+    seatbelt: function (s) { return !s.sys || s.sys.seatBelts; },
+    engModeNorm: function (s) { return !s.sys || (s.sys.boeing ? s.sys.engStart.indexOf('GRD') < 0 : s.sys.engMode === 'NORM'); },
+    hydOk: function (s) { return !s.sys || (s.sys.hyd[0] && (s.sys.hyd[2] || s.sys.hyd[1])); },
     antiice: function (s) { return true; },
-    beacon: function (s) { return s.lights && s.lights.beacon; },
+    beacon: function (s) { return s.lights && s.lights.beacon && s.lights.nav; },
     apoff: function (s) { return !s.ap.engaged; },
     parkbrk: function (s) { return s.parkingBrake; },
     parkbrkOff: function (s) { return !s.parkingBrake; },
-    flaps: function (s) { return s.flapPos > 0.05; },
+    flaps: function (s) { return (s.flapDetent || 0) > 0 || s.flapPos > 0.05; },   // 襟翼手柄位置 (液压建立后襟翼才会放出)
     flapsSet: function (s) { return s.flapPos > 0.05 && !s.gearMoving; },
-    apuBleedOff: function (s) { return s.apuRunning; },
-    apuBleedOn: function (s) { return s.apuRunning; },
-    packs: function (s) { return true; },
+    apuBleedOff: function (s) { return s.sys ? !s.sys.apuBleed : s.apuRunning; },
+    apuBleedOn: function (s) { return s.sys ? s.sys.apuBleedOn : s.apuRunning; },
+    packs: function (s) { return !s.sys || (s.sys.pack1 && s.sys.pack2); },
     engAntiIce: function (s) { return true; },
     autobrake: function (s) { return s.autoBrake && s.autoBrake !== 'OFF'; },
     autobrakeSet: function (s) { return s.autoBrake && s.autoBrake !== 'OFF'; },
@@ -148,7 +160,7 @@
     rto: function (s) { return s.autoBrake && s.autoBrake !== 'OFF'; },
     toLights: function (s) { return s.lights && s.lights.landing; },
     toLightsOff: function (s) { return s.lights && !s.lights.landing; },
-    tcas: function (s) { return true; },
+    tcas: function (s) { return !s.sys || s.sys.tcas === 'TA/RA'; },
     cabin: function (s) { return true; },
     gearUp: function (s) { return s.gearPos < 0.02; },
     gearDown: function (s) { return s.gearPos > 0.99; },
@@ -168,7 +180,7 @@
     spoilersRet: function (s) { return s.spoilerPos < 0.05; },
     wxOff: function (s) { return true; },
     engOff: function (s) { return s.engines.every(function (e) { return e.state === 'off'; }); },
-    seatbeltOff: function (s) { return true; },
+    seatbeltOff: function (s) { return !s.sys || !s.sys.seatBelts; },
     navOff: function (s) { return s.lights && !s.lights.nav; },
     apuOff: function (s) { return !s.apuRunning; }
   };
@@ -183,8 +195,9 @@
       name: '冷舱启动',
       nameEn: 'Cold & Dark',
       difficulty: '入门',
-      description: '飞机完全断电停靠在停机坪。按照标准程序接通电源、启动 APU、起动发动机, 然后滑行至跑道。',
-      hint: '按 Shift+A 接通 APU, 等待 APU 可用后按 Ctrl+S 起动全部发动机。',
+      coldDark: true,
+      description: '飞机完全断电 (COLD & DARK)。全部用鼠标点击三维驾驶舱开关: 接通电瓶与外部电源、ADIRS 对准、燃油泵、APU 与 APU 引气, 起动两台发动机, 然后滑行。',
+      hint: 'BAT 1+2 → EXT PWR → IR NAV → 燃油泵 → BEACON → APU MASTER/START → APU BLEED → ENG MODE IGN (波音 ENG START GRD) → ENG MASTER 2、1 (波音 FUEL CONTROL RUN)。按 ? 查看完整检查单。',
       setup: function (ctx) {
         var fm = ctx.fm, env = ctx.env;
         var ap = FS.Airports.byIcao(ctx.airportIcao) || FS.Airports.list[0];
@@ -204,14 +217,19 @@
           fm.engines[i].egt = 15;
         }
         fm.throttle = fm.throttle.map(function () { return 0; });
-        if (ctx.setLights) ctx.setLights({ beacon: false, nav: false, landing: false, taxi: false, strobe: false });
+        if (ctx.setLights) ctx.setLights({ beacon: false, nav: false, landing: false, taxi: false, strobe: false, logo: false, wing: false, cabin: false, rwyTurnoff: false });
+        if (fm.sys) fm.sys.setColdDark();          // beta 0.4.2: 电瓶 / 外部电源 / ADIRS / 燃油泵 / APU 全部关闭, 严格起动条件
         if (env) env.setWeather(FS.Environment.presetWeather('few'));
         if (ctx.ap) ctx.ap.setPitchMode('OFF'), ctx.ap.ap.engaged = false;
         return { title: '冷舱启动', subtitle: ap.nameZh + ' · ' + rwy.ident };
       },
       objectives: [
-        { text: '接通 APU 并等待可用', check: function (s) { return s.apuRunning; } },
-        { text: '起动两台发动机至慢车', check: function (s) { return s.engines.every(function (e) { return e.n1 > e.n1Idle - 1 && e.state === 'running'; }); } },
+        { text: '接通电瓶 BAT 1 + BAT 2 与外部电源 EXT PWR', check: function (s) { return !s.sys || (s.sys.bat1 && s.sys.bat2 && s.sys.ac); } },
+        { text: 'ADIRS 置 NAV 并完成对准', check: function (s) { return !s.sys || s.sys.irAllNav; } },
+        { text: '燃油泵 ON, 信标灯 BEACON ON', check: function (s) { return (!s.sys || [0, 1, 4, 5].every(function (i) { return s.sys.pumps[i]; })) && s.lights && s.lights.beacon; } },
+        { text: 'APU MASTER + START, 等待 APU AVAIL', check: function (s) { return s.sys ? s.sys.apuAvail : s.apuRunning; } },
+        { text: 'APU BLEED ON (起动引气)', check: function (s) { return !s.sys || s.sys.apuBleedOn; } },
+        { text: '起动两台发动机至慢车', check: function (s) { return s.engines.every(function (e) { return e.state === 'running' && e.n1 > 15; }); } },
         { text: '松开停留刹车', check: function (s) { return !s.parkingBrake; } },
         { text: '滑行速度不超过 25 kt', check: function (s) { return true; }, continuous: true }
       ]

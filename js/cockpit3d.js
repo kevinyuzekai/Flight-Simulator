@@ -660,7 +660,7 @@
 
   /** 拨动开关: get() → bool, toggle(dir) */
   P._toggle = function (pn, x, y, sp) {
-    var THREE = this.THREE, M = this.M, g = pn.g;
+    var THREE = this.THREE, M = this.M, g = pn.g, self = this;
     this._box(0.02, 0.026, 0.004, M.black, x, y, 0.002, 0, 0, 0, g);
     var pv = new THREE.Group(); pv.position.set(x, y, 0.004); g.add(pv);
     this._cyl(0.0032, 0.0042, 0.024, 8, M.knob, 0, 0, 0.012, Math.PI / 2, 0, 0, pv);
@@ -676,7 +676,7 @@
       this._regLamp(lm, sp.lamp);
     }
     return this._ctl(this._hitbox(0.03, 0.045, 0.04, x, y, 0.016, g),
-      { id: sp.id, tip: sp.tip, click: function (dir) { sp.toggle(dir); }, wheel: function (dir) { if (!!safe(sp.get, false) !== (dir > 0)) sp.toggle(dir); } });
+      { id: sp.id, tip: sp.tip, click: function (dir) { self._sfx(); sp.toggle(dir); }, wheel: function (dir) { if (!!safe(sp.get, false) !== (dir > 0)) sp.toggle(dir); } });
   };
   /** 带灯按钮: lamp() → 0xRRGGBB | 0 (熄灭), press() */
   P._pushBtn = function (pn, x, y, sp) {
@@ -696,7 +696,7 @@
   };
   /** 多档旋钮: positions[], get() → index, set(index) */
   P._rotary = function (pn, x, y, sp) {
-    var THREE = this.THREE, M = this.M, g = pn.g, n = sp.positions.length;
+    var THREE = this.THREE, M = this.M, g = pn.g, n = sp.positions.length, self = this;
     var step = sp.step || Math.min(0.6, 2.4 / Math.max(1, n - 1)), r = sp.r || 0.014;
     var pv = new THREE.Group(); pv.position.set(x, y, 0.002); g.add(pv);
     this._cyl(r, r * 1.1, 0.012, 16, M.stick, 0, 0, 0.006, Math.PI / 2, 0, 0, pv);
@@ -707,7 +707,7 @@
       var a = (i - (n - 1) / 2) * step, rr = r + 0.0105;
       pn.label(sp.positions[i], x + Math.sin(a) * rr, y + Math.cos(a) * rr, 0.0072, '#d8dcdf');
     }
-    function setI(i) { i = Math.max(0, Math.min(n - 1, i)); if (i !== safe(sp.get, 0)) sp.set(i); }
+    function setI(i) { i = Math.max(0, Math.min(n - 1, i)); if (i !== safe(sp.get, 0)) { self._sfx(); sp.set(i); } }
     return this._ctl(this._hitbox(r * 2.6, r * 2.6, 0.03, x, y, 0.012, g), {
       id: sp.id, tip: sp.tip,
       // 点击循环换档 (到头后回到另一端), 滚轮不循环
@@ -716,24 +716,103 @@
     });
   };
 
+  P._sfx = function () { var a = this.sim && this.sim.audio; if (a && a.playCue) { try { a.playCue('click'); } catch (e) { /* */ } } };
+
+  /**
+   * 带文字的指示灯 (按钮灯罩 / 独立指示灯). fn() → [{t, col, on}, ...] (1–2 行); 只在变化时重绘
+   */
+  P._annLamp = function (parent, x, y, z, w, h, fn) {
+    var rows = safe(fn, []) || [], n = Math.max(1, rows.length);
+    var c = mkCanvas(64, n > 1 ? 56 : 26), tex = this._tex(c);
+    var mat = this._mat(0xffffff, { flat: true, map: tex, toneMapped: false, emissive: true });
+    this._plane(w, h, mat, x, y, z, 0, 0, 0, parent);
+    var a = { c: c, tex: tex, fn: fn, sig: null };
+    this.controls.push({ ann: a });
+    this._drawAnn(a);
+    return a;
+  };
+  P._drawAnn = function (a) {
+    var rows = safe(a.fn, []) || [], sig = JSON.stringify(rows);
+    if (sig === a.sig) return;
+    a.sig = sig;
+    var c = a.c, g = c.getContext('2d'), W = c.width, H = c.height, n = Math.max(1, rows.length);
+    g.fillStyle = '#0a0b0c'; g.fillRect(0, 0, W, H);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    rows.forEach(function (r, i) {
+      if (!r || !r.t) return;
+      var fs = n > 1 ? 17 : 16;
+      g.font = 'bold ' + fs + 'px sans-serif';
+      var tw = g.measureText(r.t).width;
+      if (tw > W - 6) { fs = Math.floor(fs * (W - 6) / tw); g.font = 'bold ' + fs + 'px sans-serif'; }
+      var yy = (i + 0.5) * H / n;
+      if (r.on) { g.fillStyle = r.col; g.globalAlpha = 0.16; g.fillRect(3, yy - H / n / 2 + 2, W - 6, H / n - 4); g.globalAlpha = 1; }
+      g.fillStyle = r.on ? r.col : '#33373b';
+      g.fillText(r.t, W / 2, yy + 1);
+    });
+    a.tex.needsUpdate = true;
+  };
+  /** 空客风格带字按钮: legend() → [{t,col,on},{t,col,on}], press(dir) */
+  P._annBtn = function (pn, x, y, sp) {
+    var THREE = this.THREE, M = this.M, g = pn.g, self = this;
+    this._box(0.03, 0.026, 0.004, M.black, x, y, 0.002, 0, 0, 0, g);
+    var pv = new THREE.Group(); pv.position.set(x, y, 0.004); g.add(pv);
+    this._box(0.026, 0.022, 0.008, M.bezel, 0, 0, 0.004, 0, 0, 0, pv);
+    this._annLamp(pv, 0, 0, 0.0085, 0.023, 0.019, sp.legend);
+    var anim = this._regAnim(pv.position, 'z', function () { return anim.pressT > 0 ? 0.001 : 0.004; }, 30);
+    anim.pressT = 0;
+    pn.label(sp.label, x, y + 0.022, sp.labelSize || 0.0085);
+    if (sp.sub) pn.label(sp.sub, x, y - 0.0185, 0.0068, '#cfd3d6');
+    return this._ctl(this._hitbox(0.034, 0.03, 0.03, x, y, 0.012, g),
+      { id: sp.id, tip: sp.tip, click: function (dir) { anim.pressT = 0.18; self._sfx(); sp.press(dir); } });
+  };
+
   /* ---------------- 面板布置 ---------------- */
   P._buildSwitchPanels = function () {
     var self = this, k = this.L.k, boeing = this.L.maker === 'boeing', doc = global.document;
     function sim() { return self.sim || {}; }
     function fm() { return sim().fm || null; }
+    function sys() { var f = fm(); return f && f.sys ? f.sys : null; }
+    function dc() { var s = sys(); return !s || !!s.out.dc; }
     function domClick(id) { var e = doc && doc.getElementById(id); if (e) { e.click(); return true; } return false; }
     function notify(t) { var h = sim().hud; if (h && h.notify) h.notify(t, 'info', 1300); }
+    var AMB = '#ffb000', GRN = '#3dff6a', BLU = '#38b6ff', WHT = '#f2f2f2';
+    function L2(t1, c1, on1, t2, c2, on2) { var p = dc(); return [{ t: t1, col: c1, on: p && !!on1 }, { t: t2, col: c2, on: p && !!on2 }]; }
+    /** 通用的 "开关量" 按钮 (FAULT / OFF 或 FAULT / ON) */
+    function swBtn(id, label, tip, key, idx, onLegend, faultFn, sub) {
+      function get() { var s = sys(); if (!s) return true; return idx === undefined ? !!s.sw[key] : !!s.sw[key][idx]; }
+      return { t: 'pb', w: 0.062, sp: { id: id, label: label, sub: sub, tip: tip + ' (点击 开 / 关)',
+        legend: function () {
+          var on = get(), f = faultFn ? safe(faultFn, false) : false;
+          return onLegend ? L2('FAULT', AMB, f, 'ON', BLU, on) : L2(boeing ? 'LOW PRESS' : 'FAULT', AMB, f, 'OFF', WHT, !on);
+        },
+        press: function () {
+          var s = sys(); if (!s) return;
+          if (idx === undefined) s.toggle(key); else s.setArr(key, idx, !s.sw[key][idx]);
+          notify(label.replace(/\n/g, ' ') + (get() ? ' ON' : ' OFF'));
+        } } };
+    }
+    function rot(id, label, tip, positions, get, set, w) {
+      return { t: 'rot', w: w || 0.07, sp: { id: id, label: label, tip: tip, positions: positions, r: 0.012,
+        get: function () { var i = positions.indexOf(safe(get, positions[0])); return i < 0 ? 0 : i; },
+        set: function (i) { set(positions[i]); notify(label + ' ' + positions[i]); } } };
+    }
+    function engRun(i) { var f = fm(), e = f && f.engines[i]; return !!e && (e.state === 'running' || e.state === 'idle'); }
 
-    /* ---- 1. 头顶板前部: 外部灯光 + APU (真实拨杆) ---- */
+    /* ---- 1. 头顶板前部: 外部灯光 (真实拨杆) ---- */
     // 头顶板平面: (y 0.245k, z -0.70k) → (y 0.34k, z 0.15k); 局部 +y = 朝后, +z = 朝下 (指向飞行员)
     var sl = 0.095 / 0.85, th = Math.atan2(0.85, 0.095);
-    var zc = -0.585 * k, yc = 0.245 * k + (zc + 0.70 * k) * sl;
     var off = 0.007;                         // 面板略低于头顶板, 避免 z-fighting
-    var LT = [['strobe', 'STROBE', '频闪灯'], ['beacon', 'BEACON', '防撞信标灯'], ['wing', 'WING', '机翼照明灯'], ['nav', 'NAV', '航行灯'],
-      ['logo', 'LOGO', '标志灯'], ['landing', 'LAND', '着陆灯'], ['taxi', 'TAXI', '滑行灯 / 前轮灯'], ['cabin', 'CABIN', '客舱灯']];
+    function ovhPanel(zc, w, h, labels) {
+      var z = zc * k, yc = 0.245 * k + (z + 0.70 * k) * sl;
+      return self._panel({ pos: [0, yc - off, z], rotX: th, w: w, h: h, labels: labels });
+    }
+    var LT = boeing
+      ? [['strobe', 'STROBE', '频闪灯'], ['beacon', 'ANTI COL', '防撞信标灯 (BEACON)'], ['wing', 'WING', '机翼照明灯'], ['nav', 'POSITION', '航行灯'],
+        ['logo', 'LOGO', '标志灯'], ['landing', 'LANDING', '着陆灯'], ['rwyTurnoff', 'RWY TURNOFF', '跑道脱离灯'], ['taxi', 'TAXI', '滑行灯 / 前轮灯'], ['cabin', 'CABIN', '客舱灯']]
+      : [['strobe', 'STROBE', '频闪灯'], ['beacon', 'BEACON', '防撞信标灯'], ['wing', 'WING', '机翼照明灯'], ['nav', 'NAV', '航行灯'],
+        ['logo', 'LOGO', '标志灯'], ['landing', 'LAND', '着陆灯'], ['rwyTurnoff', 'RWY T.OFF', '跑道脱离灯'], ['taxi', 'TAXI', '滑行灯 / 前轮灯'], ['cabin', 'CABIN', '客舱灯']];
     var ow = 0.70, oh = 0.10;
-    var ovh = this._panel({ pos: [0, yc - off, zc], rotX: th, w: ow, h: oh,
-      labels: [['EXT LT', -ow / 2 + 0.05, oh / 2 - 0.012, 0.010, '#ffffff']] });
+    var ovh = ovhPanel(-0.585, ow, oh, [['EXT LT', -ow / 2 + 0.05, oh / 2 - 0.012, 0.010, '#ffffff']]);
     var dx = 0.071, x0 = -ow / 2 + 0.06;
     LT.forEach(function (L, i) {
       var key = L[0];
@@ -747,42 +826,159 @@
         }
       });
     });
-    ovh.frame(x0 + 3.5 * dx, -0.004, 8 * dx + 0.01, 0.085);
-    this._pushBtn(ovh, ow / 2 - 0.05, -0.004, {
-      id: 'apu', label: 'APU', sub: 'MASTER', tip: 'APU 主电门 (起动 / 停车, 约 60 秒后可用)',
-      lamp: function () { var f = fm(); if (!f || !f.apuRunning) return 0; return (f.apuTimer || 0) > 60 ? 0x2bff5a : 0x3fa8ff; },
-      press: function () { if (!domClick('apu-btn')) { var f = fm(); if (f) { if (f.apuRunning) f.stopAPU(); else f.startAPU(); } } }
-    });
+    ovh.frame(x0 + 4 * dx, -0.004, 9 * dx + 0.01, 0.085);
     if (ovh.mat.map) ovh.mat.map.needsUpdate = true;
 
-    /* ---- 2. 操纵台: 发动机主电门 (空客 ENG MASTER / 波音 FUEL CONTROL) ---- */
+    /* ---- 1b. beta 0.4.2 冷舱启动: 头顶板 4 排系统面板 (空客 / 波音两套标签, 同一套系统逻辑) ---- */
+    function row(zc, sections) {
+      var W = 0.78, H = 0.10, gap = 0.014, total = -gap;
+      sections.forEach(function (s) { total += gap; s.items.forEach(function (it) { total += it.w; }); });
+      var pn = ovhPanel(zc, W, H, []);
+      var x = -total / 2;
+      sections.forEach(function (sec) {
+        var sx0 = x;
+        sec.items.forEach(function (it) {
+          var cx = x + it.w / 2;
+          if (it.t === 'pb') self._annBtn(pn, cx, -0.004, it.sp);
+          else if (it.t === 'tg') self._toggle(pn, cx, -0.004, it.sp);
+          else if (it.t === 'rot') { self._rotary(pn, cx, -0.009, it.sp); if (it.lamp) self._annLamp(pn.g, cx, -0.038, 0.003, 0.026, 0.009, it.lamp); }
+          else if (it.t === 'lamp') { self._annLamp(pn.g, cx, -0.004, 0.003, 0.03, 0.012, it.fn); pn.label(it.label, cx, 0.016, 0.0075); }
+          x += it.w;
+        });
+        pn.frame((sx0 + x) / 2, -0.004, x - sx0 + 0.004, 0.085);
+        pn.label(sec.title, (sx0 + x) / 2, 0.040, 0.0085, '#ffffff');
+        x += gap;
+      });
+      if (pn.mat.map) pn.mat.map.needsUpdate = true;
+      return pn;
+    }
+    function apuMaster() {
+      return { t: 'pb', w: 0.062, sp: { id: 'apu', label: boeing ? 'APU' : 'MASTER SW', tip: 'APU 主电门 MASTER SW (点击 开 / 关)',
+        legend: function () { var s = sys(); var on = s ? s.sw.apuMaster : !!(fm() && fm().apuRunning); return L2('FAULT', AMB, false, 'ON', BLU, on); },
+        press: function () {
+          var s = sys(), f = fm(); if (!f) return;
+          if (!s) { if (!domClick('apu-btn')) { if (f.apuRunning) f.stopAPU(); else f.startAPU(); } return; }
+          if (s.sw.apuMaster) { s.stopApu(); notify('APU MASTER OFF'); } else { s.set('apuMaster', true); notify('APU MASTER ON — 再按 START'); }
+          var b = doc && doc.getElementById('apu-btn'); if (b) b.classList.toggle('on', !!f.apuRunning);
+        } } };
+    }
+    function apuStart() {
+      return { t: 'pb', w: 0.062, sp: { id: 'apu-start', label: 'START', tip: 'APU START (需 MASTER SW ON 与电瓶, 约 30 秒后 AVAIL)',
+        legend: function () { var s = sys(); var st = s ? s.apu.state : 'off'; return L2('AVAIL', GRN, st === 'avail', 'ON', BLU, st === 'starting'); },
+        press: function () { var s = sys(), f = fm(); if (s) s.pressApuStart(); else if (f && !f.apuRunning) f.startAPU();
+          var b = doc && doc.getElementById('apu-btn'); if (b && f) b.classList.toggle('on', !!f.apuRunning); } } };
+    }
+    var seat = { t: 'tg', w: 0.058, sp: { id: 'sign-seatbelts', label: boeing ? 'FASTEN BELTS' : 'SEAT BELTS', tip: '安全带灯 (点击 开 / 关)', onDir: -1,
+      get: function () { var s = sys(); return s ? !!s.sw.seatBelts : true; }, toggle: function () { var s = sys(); if (s) { s.toggle('seatBelts'); notify('安全带灯 ' + (s.sw.seatBelts ? 'ON' : 'OFF')); } } } };
+    var row1 = [{ title: 'APU', items: [apuMaster(), apuStart()] }];
+    if (boeing) {
+      row1.push({ title: 'ENGINE START', items: [0, 1].map(function (i) {
+        return rot('eng-start-sel-' + (i + 1), 'ENG ' + (i + 1), '发动机起动电门 ' + (i + 1) + ' (GRD = 地面起动, 起动完成后自动回 OFF)', ['GRD', 'OFF', 'CONT', 'FLT'],
+          function () { var s = sys(); return s ? s.sw.engStart[i] : 'OFF'; }, function (v) { var s = sys(); if (s) s.setArr('engStart', i, v); }, 0.08);
+      }) });
+    }
+    row1.push({ title: 'SIGNS', items: [seat] });
+    row(-0.47, row1);
+    row(-0.355, [
+      { title: 'ELEC', items: [
+        swBtn('elec-bat1', boeing ? 'BATTERY' : 'BAT 1', boeing ? '主电瓶' : '电瓶 1', 'bat1'),
+        swBtn('elec-bat2', boeing ? 'STBY PWR' : 'BAT 2', boeing ? '备用电源' : '电瓶 2', 'bat2'),
+        { t: 'pb', w: 0.062, sp: { id: 'elec-ext', label: boeing ? 'GRD PWR' : 'EXT PWR', tip: '外部电源 (地面静止时 AVAIL, 点击接通 / 断开)',
+          legend: function () { var s = sys(); var av = s && s.out.extAvail, on = s && s.out.ext; return L2('AVAIL', GRN, av && !on, 'ON', BLU, on); },
+          press: function () { var s = sys(); if (!s) return; if (!s.out.extAvail) { notify('外部电源不可用 (仅地面静止时)'); return; } s.toggle('extPwr'); notify('EXT PWR ' + (s.sw.extPwr ? 'ON' : 'OFF')); } } }
+      ] },
+      { title: boeing ? 'BLEED AIR' : 'AIR COND', items: [
+        swBtn('pack1', boeing ? 'PACK L' : 'PACK 1', '空调组件 1', 'pack1'),
+        swBtn('bleed-eng1', 'ENG 1 BLEED', '发动机 1 引气', 'engBleed', 0),
+        swBtn('apu-bleed', 'APU BLEED', 'APU 引气 (发动机起动需要)', 'apuBleed', undefined, true),
+        rot('xbleed', boeing ? 'ISOLATION' : 'X BLEED', boeing ? '隔离活门 (CLOSE / AUTO / OPEN)' : '交输引气 (SHUT / AUTO / OPEN)', boeing ? ['SHUT', 'AUTO', 'OPEN'] : ['SHUT', 'AUTO', 'OPEN'],
+          function () { var s = sys(); return s ? s.sw.xbleed : 'AUTO'; }, function (v) { var s = sys(); if (s) s.set('xbleed', v); }),
+        swBtn('bleed-eng2', 'ENG 2 BLEED', '发动机 2 引气', 'engBleed', 1),
+        swBtn('pack2', boeing ? 'PACK R' : 'PACK 2', '空调组件 2', 'pack2')
+      ] }
+    ]);
+    var FP = boeing ? ['L FWD', 'L AFT', 'CTR L', 'CTR R', 'R FWD', 'R AFT'] : ['L TK 1', 'L TK 2', 'CTR TK 1', 'CTR TK 2', 'R TK 1', 'R TK 2'];
+    row(-0.24, [
+      { title: 'FUEL', items: FP.map(function (n, i) {
+        return swBtn('fuel-' + ['l1', 'l2', 'c1', 'c2', 'r1', 'r2'][i], n, '燃油泵 ' + n, 'pumps', i, false, function () { var s = sys(); return boeing ? !(s.sw.pumps[i] && s.out.ac) : (s.sw.pumps[i] && !s.out.ac); }, 'PUMP');
+      }) },
+      { title: 'HYD', items: [
+        swBtn('hyd-eng1', boeing ? 'ENG 1 (A)' : 'ENG 1 PUMP', '液压 发动机 1 泵', 'hydEng1', undefined, false, function () { return !engRun(0); }),
+        swBtn('hyd-elec', boeing ? 'ELEC 1 (A)' : 'ELEC PUMP', boeing ? '液压 电动泵 1' : '蓝液压 电动泵', 'hydElec'),
+        swBtn('hyd-ptu', boeing ? 'ELEC 2 (B)' : 'PTU', boeing ? '液压 电动泵 2' : '动力转换组件 PTU', 'ptu'),
+        swBtn('hyd-eng2', boeing ? 'ENG 2 (B)' : 'ENG 2 PUMP', '液压 发动机 2 泵', 'hydEng2', undefined, false, function () { return !engRun(1); })
+      ] }
+    ]);
+    var irPos = boeing ? ['OFF', 'ALIGN', 'NAV', 'ATT'] : ['OFF', 'NAV', 'ATT'];
+    var nIr = boeing ? 2 : 3, irItems = [];
+    for (var ii = 0; ii < nIr; ii++) (function (i) {
+      var it = rot('adirs-ir' + (i + 1), boeing ? 'IRS ' + (i ? 'R' : 'L') : 'IR ' + (i + 1), (boeing ? 'IRS ' : '惯导 IR ') + (i + 1) + ' 方式选择 (NAV = 对准后提供导航, 约 75 秒)', irPos,
+        function () { var s = sys(); return s ? s.sw.ir[i] : 'NAV'; }, function (v) { var s = sys(); if (s) s.setIr(i, v); }, boeing ? 0.08 : 0.07);
+      it.lamp = function () { var s = sys(), r = s && s.ir[i]; return [{ t: 'ALIGN', col: WHT, on: dc() && !!r && r.state === 'align' && (Math.floor(Date.now() / 500) % 2 === 0) }]; };
+      irItems.push(it);
+    })(ii);
+    irItems.push({ t: 'lamp', w: 0.045, label: 'ON BAT', fn: function () { var s = sys(); return [{ t: 'ON BAT', col: AMB, on: !!(s && s.out.onBat) }]; } });
+    row(-0.125, [
+      { title: boeing ? 'IRS' : 'ADIRS', items: irItems },
+      { title: 'ANTI ICE', items: [
+        swBtn('probe-heat', boeing ? 'PROBE HEAT' : 'PROBE/WINDOW', '探头 / 风挡加温', 'probeHeat', undefined, true),
+        swBtn('ai-wing', 'WING', '机翼防冰', 'wingAI', undefined, true),
+        swBtn('ai-eng1', 'ENG 1', '发动机 1 防冰', 'engAI', 0, true),
+        swBtn('ai-eng2', 'ENG 2', '发动机 2 防冰', 'engAI', 1, true)
+      ] }
+    ]);
+
+    /* ---- 2. 操纵台: 发动机主电门 (空客 ENG MASTER / 波音 FUEL CONTROL) + ENG MODE ---- */
     var pg = this._pedGeo, pw = pg.pw, pz = pg.qz + pg.qLen / 2 + 0.06;
     var eng = this._panel({ pos: [0, pg.top + 0.004, pz], rotX: -Math.PI / 2, w: pw * 1.9, h: 0.095,
-      labels: [[boeing ? 'FUEL CONTROL' : 'ENG MASTER', 0, 0.038, 0.0095, '#ffffff']] });
+      labels: [[boeing ? 'FUEL CONTROL' : 'ENG MASTER', -0.065, 0.040, 0.0095, '#ffffff']] });
     [0, 1].forEach(function (i) {
       self._toggle(eng, (i === 0 ? -1 : 1) * 0.065, -0.008, {
         id: 'eng-master-' + (i + 1), label: 'ENG ' + (i + 1), on: boeing ? 'RUN' : 'ON', off: boeing ? 'CUTOFF' : 'OFF', onDir: 1,
-        tip: (boeing ? '燃油控制电门 ' : '发动机主电门 ') + (i + 1) + ' (点击起动 / 关车)',
-        get: function () { var f = fm(), e = f && f.engines[Math.min(i, f.engines.length - 1)]; return !!(e && e.state !== 'off' && e.state !== 'shutting'); },
+        tip: (boeing ? '燃油控制电门 ' : '发动机主电门 ') + (i + 1) + (boeing ? ' (RUN / CUTOFF; 冷舱: 先把 ENG START 旋到 GRD)' : ' (ON / OFF; 冷舱: 先把 ENG MODE 旋到 IGN/START)'),
+        get: function () {
+          var s = sys(); if (s) return !!s.sw.engMaster[i];
+          var f = fm(), e = f && f.engines[Math.min(i, f.engines.length - 1)]; return !!(e && e.state !== 'off' && e.state !== 'shutting');
+        },
         lamp: function () { var f = fm(), e = f && f.engines[Math.min(i, f.engines.length - 1)]; return e && (e.state === 'starting' || e.state === 'shutting') ? 0xffb000 : 0; },
         toggle: function () {
+          var s = sys(), f = fm(); if (!f) return;
+          if (s) { var on = !s.sw.engMaster[i]; s.setEngMaster(i, on); notify((boeing ? 'FUEL CONTROL ' : 'ENG MASTER ') + (i + 1) + (on ? (boeing ? ' RUN' : ' ON') : (boeing ? ' CUTOFF' : ' OFF'))); return; }
           if (domClick('eng-start-' + (i + 1))) return;
-          var f = fm(); if (!f) return;
           if (f.engines[i].state === 'off') f.startEngine(i); else f.shutdownEngine(i);
         }
       });
     });
-    // 停留刹车 (操纵台上, 发动机主电门后方)
-    this._rotary(eng, 0, -0.006, {
+    if (!boeing) {
+      this._rotary(eng, 0, -0.010, {
+        id: 'eng-mode', label: 'MODE', positions: ['CRANK', 'NORM', 'IGN START'], r: 0.011, step: 0.75,
+        tip: '发动机方式选择 ENG MODE (IGN/START = 起动, 起动后回 NORM)',
+        get: function () { var s = sys(); return s ? ['CRANK', 'NORM', 'IGN'].indexOf(s.sw.engMode) : 1; },
+        set: function (i) { var s = sys(); if (s) { s.set('engMode', ['CRANK', 'NORM', 'IGN'][i]); notify('ENG MODE ' + ['CRANK', 'NORM', 'IGN/START'][i]); } }
+      });
+    }
+    // 停留刹车 (操纵台右侧)
+    var pbx = Math.min(0.15, pw * 0.95 - 0.03);
+    this._rotary(eng, pbx, -0.006, {
       id: 'park-brake', label: boeing ? 'PARK BRAKE' : 'PARK BRK', positions: ['OFF', 'ON'], step: 1.2, r: 0.011,
       tip: '停留刹车 (点击 / 滚轮 开关)',
       get: function () { var f = fm(); return f && f.parkingBrake ? 1 : 0; },
       set: function (i) { var f = fm(); if (!f) return; if (!!f.parkingBrake !== !!i) { if (!domClick('park-brake')) f.setParkingBrake(!!i); } }
     });
     var pbLamp = this._lampMat();
-    this._plane(0.022, 0.007, pbLamp, 0, -0.04, 0.002, 0, 0, 0, eng.g);
+    this._plane(0.022, 0.007, pbLamp, pbx, -0.04, 0.002, 0, 0, 0, eng.g);
     this._regLamp(pbLamp, function () { var f = fm(); return f && f.parkingBrake ? 0xff3020 : 0; });
     if (eng.mat.map) eng.mat.map.needsUpdate = true;
+    // ATC / TCAS (简化选择器)
+    var atc = this._panel({ pos: [0, pg.top + 0.004, pz + 0.105], rotX: -Math.PI / 2, w: pw * 1.9, h: 0.085,
+      labels: [['ATC / TCAS', 0, 0.034, 0.0090, '#ffffff']] });
+    this._rotary(atc, -0.06, -0.012, { id: 'xpdr', label: 'XPDR', positions: ['STBY', 'AUTO', 'ON'], r: 0.011, tip: '应答机 (STBY / AUTO / ON)',
+      get: function () { var s = sys(); return s ? Math.max(0, ['STBY', 'AUTO', 'ON'].indexOf(s.sw.xpdr)) : 1; },
+      set: function (i) { var s = sys(); if (s) { s.set('xpdr', ['STBY', 'AUTO', 'ON'][i]); notify('XPDR ' + s.sw.xpdr); } } });
+    this._rotary(atc, 0.06, -0.012, { id: 'tcas', label: 'TCAS', positions: ['STBY', 'TA', 'TA/RA'], r: 0.011, tip: 'TCAS (STBY / TA / TA/RA)',
+      get: function () { var s = sys(); return s ? Math.max(0, ['STBY', 'TA', 'TA/RA'].indexOf(s.sw.tcas)) : 2; },
+      set: function (i) { var s = sys(); if (s) { s.set('tcas', ['STBY', 'TA', 'TA/RA'][i]); notify('TCAS ' + s.sw.tcas); } } });
+    if (atc.mat.map) atc.mat.map.needsUpdate = true;
 
     /* ---- 3. 主仪表板中央 (下显示器右侧): 自动刹车旋钮 ---- */
     var pd = this._panelDims, du = this.L.du;
@@ -809,6 +1005,7 @@
     if (lampTick) this._lampT = 0;
     for (var i = 0; i < this.controls.length; i++) {
       var c = this.controls[i];
+      if (c.ann) { if (lampTick) this._drawAnn(c.ann); continue; }
       if (c.lamp) {
         if (!lampTick) continue;
         var col = safe(c.fn, 0) || 0;
@@ -934,7 +1131,8 @@
       spd: f.spdIsMach ? (f.mach || 0.78).toFixed(2).replace(/^0/, '') : pad(f.spd, 3), mach: !!f.spdIsMach,
       hdg: pad(f.hdg, 3), alt: String(Math.round(f.alt)), vs: (f.vs >= 0 ? '+' : '-') + pad(f.vs, 4),
       ap1: lit('fcu-ap1'), ap2: lit('fcu-ap2'), athr: lit('fcu-athr'), loc: lit('fcu-loc') || !!ap.locArmed, appr: lit('fcu-appr'),
-      roll: ap.rollMode || '', pitch: ap.pitchMode || '', thrust: ap.thrustMode || ''
+      roll: ap.rollMode || '', pitch: ap.pitchMode || '', thrust: ap.thrustMode || '',
+      pwr: !(sim && sim.fm && sim.fm.sys && !sim.fm.sys.out.dc)
     };
   };
 
@@ -946,6 +1144,7 @@
     function label(t, x, y, size) { g.fillStyle = '#e8ebee'; g.font = 'bold ' + (size || 13) + 'px sans-serif'; g.fillText(t, x, y); }
     function lcd(t, x, y, w, h) {
       g.fillStyle = '#07090a'; g.fillRect(x, y, w, h);
+      if (!v.pwr) return;          // 冷舱: 无电时 FCU 窗口全黑
       g.fillStyle = boeing ? '#f2f2ea' : '#ff9d2e'; g.font = 'bold ' + Math.round(h * 0.78) + 'px monospace'; g.fillText(t, x + w / 2, y + h / 2 + 1);
     }
     function button(t, x, y, w, h, on, act) {
@@ -1157,17 +1356,38 @@
       if (this.nd.rangeNm !== sim.ndL.rangeNm) this.nd.setRange(sim.ndL.rangeNm);
       this.nd.terrainOn = sim.ndL.terrainOn; this.nd.weatherOn = sim.ndL.weatherOn; this.nd.trafficOn = sim.ndL.trafficOn;
     }
+    var so = sim && sim.fm && sim.fm.sys ? sim.fm.sys.out : null, dp = so && so.disp;
     try {
       this.pfd.render(data);
       this.nd.render(data);
       this.ecam.render(data);
       this._drawLower(st);
+      if (dp) this._sysOverlay(so, dp);
     } catch (e) {
       if (!this._warned) { this._warned = true; if (FS.Log) FS.Log.warn('3D 驾驶舱仪表渲染错误: ' + e.message); }
     }
     this.dispTex.pfd.needsUpdate = this.dispTex.nd.needsUpdate = this.dispTex.upper.needsUpdate = this.dispTex.lower.needsUpdate = true;
     this.stats.displayFrames++;
     this.stats.lastRenderMs = ((global.performance && global.performance.now()) || 0) - t0;
+  };
+
+  /** beta 0.4.2 冷舱: 无电黑屏, IR 未对准时 PFD 姿态 / ND 地图红旗 */
+  P._sysOverlay = function (so, dp) {
+    var C = this.dispCanvas;
+    function black(c) { var g = c.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height); return g; }
+    function flag(g, t, x, y, sz) { g.font = 'bold ' + sz + 'px monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#ff2a1a'; g.fillText(t, x, y); }
+    if (!dp.pfd) black(C.pfd);
+    else if (!so.adr) { var g0 = black(C.pfd), S0 = C.pfd.width / 480; flag(g0, 'SPD', 60 * S0, 200 * S0, 26 * S0); flag(g0, 'ATT', 238 * S0, 206 * S0, 34 * S0); flag(g0, 'ALT', 420 * S0, 200 * S0, 26 * S0); flag(g0, 'HDG', 238 * S0, 420 * S0, 26 * S0); }
+    else if (!so.irAtt) {
+      var g1 = C.pfd.getContext('2d'), S1 = C.pfd.width / 480;
+      g1.setTransform(1, 0, 0, 1, 0, 0); g1.fillStyle = '#000'; g1.fillRect(126 * S1, 60 * S1, 224 * S1, 292 * S1); g1.fillRect(126 * S1, 380 * S1, 224 * S1, 90 * S1);
+      flag(g1, 'ATT', 238 * S1, 190 * S1, 34 * S1); flag(g1, 'HDG', 238 * S1, 420 * S1, 24 * S1);
+      if (so.irAligning) { g1.fillStyle = '#3dff6a'; g1.font = 'bold ' + Math.round(17 * S1) + 'px monospace'; g1.fillText('ALIGN ' + Math.ceil(so.irAlignLeft) + 's', 238 * S1, 240 * S1); }
+    }
+    if (!dp.nd) black(C.nd);
+    else if (!so.irNav) { var g2 = black(C.nd), S2 = C.nd.width / 480; flag(g2, so.irAtt ? 'MAP NOT AVAIL' : 'HDG', 240 * S2, 230 * S2, 26 * S2); if (so.irAligning) { g2.fillStyle = '#3dff6a'; g2.font = 'bold ' + Math.round(18 * S2) + 'px monospace'; g2.fillText('IR ALIGN ' + Math.ceil(so.irAlignLeft) + 's', 240 * S2, 280 * S2); } }
+    if (!dp.upper) black(C.upper);
+    if (!dp.lower) black(C.lower);
   };
 
   P._updateControls = function (dt, st) {

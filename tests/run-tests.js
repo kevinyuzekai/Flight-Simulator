@@ -16,7 +16,7 @@ function loadSim() {
     Math: Math, Date: Date, JSON: JSON, setTimeout: setTimeout, clearTimeout: clearTimeout };
   ctx.window = ctx; ctx.self = ctx; ctx.globalThis = ctx;
   vm.createContext(ctx);
-  ['js/utils.js', 'js/config.js', 'js/airports.js', 'js/flightmodel.js', 'js/autopilot.js'].forEach(function (f) {
+  ['js/utils.js', 'js/config.js', 'js/airports.js', 'js/systems.js', 'js/flightmodel.js', 'js/autopilot.js', 'js/scenarios.js'].forEach(function (f) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx, { filename: f });
   });
   return ctx.FS;
@@ -371,6 +371,91 @@ test('断开警告音持续, 再次按键消音; 第三次按键重新接通', f
   // 侧杆按钮
   assert(s.ap.instinctiveDisconnect() === 'disengaged' && s.ap.instinctiveDisconnect() === 'silenced', '侧杆按钮流程异常');
   return 'T: 断开 → 消音 → 接通; 侧杆按钮: 断开 → 消音';
+});
+
+/* ---------- 8. beta 0.4.2 冷舱启动系统逻辑 ---------- */
+console.log('\n[8] 冷舱启动系统 (电瓶 → APU → 引气 → 发动机, IR 对准, 默认开局全部在运行位置)');
+function sysStep(s, sec) { var n = Math.round(sec * HZ); for (var i = 0; i < n; i++) s.fm.update(DT); }
+function coldSim(type) {
+  var s = makeFm(type, 'ZSPD'); s.fm.setupForTakeoff('ZSPD', bestRwy(s.apt), {});
+  s.fm.setParkingBrake(true);
+  s.fm.engines.forEach(function (e) { e.state = 'off'; e.n1 = 0; e.n2 = 0; e.fuelOn = false; });
+  s.fm.sys.setColdDark(); s.fm.sys.lights = { beacon: true };
+  return s;
+}
+TYPES.forEach(function (type) {
+  test('默认开局全部开关在运行位置 ' + type, function () {
+    var s = makeFm(type, 'ZSPD'); s.fm.setupForTakeoff('ZSPD', bestRwy(s.apt), {}); s.fm.sys.setRunning();
+    sysStep(s, 1);
+    var st = s.fm.getState(), y = st.sys;
+    assert(!y.strict && y.bat && y.ac && y.dc, '电源 ' + JSON.stringify([y.bat, y.ac]));
+    assert(y.irAllNav && y.irAtt, 'IR 未对准');
+    assert(y.pumps.every(Boolean) && y.fuelFeed.every(Boolean), '燃油泵');
+    assert(y.engMaster.every(Boolean) && st.engines.every(function (e) { return e.state === 'running'; }), '发动机');
+    assert(y.hyd[0] && y.disp.pfd && y.disp.nd && y.apAvail, '液压 / 显示 / AP');
+    assert(s.ap.engage(1), 'AP 不能接通');
+    return (y.boeing ? 'boeing' : 'airbus') + ', IR×' + y.irModes.length + ' NAV, AP 可接通';
+  });
+});
+['A320neo', 'B737-MAX8'].forEach(function (type) {
+  test('冷舱启动全流程 ' + type + ': BAT → EXT PWR → IR → 泵 → APU → APU BLEED → 起动选择 → 主电门 → 双发运转', function () {
+    var s = coldSim(type), f = s.fm, y = f.sys;
+    sysStep(s, 0.5);
+    assert(!y.out.dc && !y.out.disp.pfd && !y.out.disp.upper, '冷舱应全黑');
+    // 无电时 APU / 发动机不能起动
+    f.sys.set('apuMaster', true); assert(!y.pressApuStart(), '无电瓶也能起动 APU'); f.sys.set('apuMaster', false);
+    y.setEngMaster(0, true); sysStep(s, 3); assert(f.engines[0].state === 'off', '无电时发动机起动了'); y.setEngMaster(0, false);
+    y.set('bat1', true); y.set('bat2', true); sysStep(s, 0.2);
+    assert(y.out.dc && !y.out.ac && y.out.disp.upper && !y.out.disp.pfd, '仅电瓶: 直流有电, 交流无电');
+    y.set('extPwr', true); sysStep(s, 0.2); assert(y.out.ac, 'EXT PWR 无效');
+    for (var i = 0; i < y.nIr; i++) y.setIr(i, 'NAV');
+    sysStep(s, 2); assert(y.out.irAligning && !y.out.irNav && !y.out.apAvail, 'IR 应在对准中');
+    assert(!s.ap.engage(1), 'IR 未对准时 AP 不应接通');
+    [0, 1, 2, 3, 4, 5].forEach(function (i) { y.setArr('pumps', i, true); });
+    // APU
+    y.set('apuMaster', true); assert(y.pressApuStart(), 'APU START 失败');
+    sysStep(s, 10); assert(f.apuRunning && !f.apuAvail, 'APU 应在起动中');
+    sysStep(s, 25); assert(f.apuAvail, 'APU 未 AVAIL');
+    // 没有引气 / 起动选择时主电门 ON 不起动
+    y.setEngMaster(1, true); sysStep(s, 2);
+    assert(f.engines[1].state === 'off', '无引气时起动了');
+    assert(/BLEED|MODE|GRD/.test(y.block[1]), '起动等待原因 ' + y.block[1]);
+    y.set('apuBleed', true); sysStep(s, 1); assert(y.out.duct[0] && y.out.duct[1], 'APU BLEED + X BLEED AUTO 应给两侧供气');
+    assert(f.engines[1].state === 'off', '起动选择未到位就起动了');
+    if (y.boeing) y.setArr('engStart', 1, 'GRD'); else y.set('engMode', 'IGN');
+    sysStep(s, 1); assert(f.engines[1].state === 'starting', 'ENG 2 未开始起动: ' + y.block[1]);
+    sysStep(s, 60); assert(f.engines[1].state === 'running', 'ENG 2 未到慢车');
+    if (y.boeing) { assert(y.sw.engStart[1] === 'OFF', '波音 ENG START 应自动回 OFF'); y.setArr('engStart', 0, 'GRD'); }
+    y.setEngMaster(0, true); sysStep(s, 60);
+    assert(f.engines.every(function (e) { return e.state === 'running' && e.n1 > 15; }), '双发未运转');
+    if (!y.boeing) y.set('engMode', 'NORM');
+    y.set('apuBleed', false); y.set('extPwr', false); sysStep(s, 1);
+    assert(y.out.ac && y.out.gen[0] && y.out.gen[1] && y.out.hyd[0], '发动机发电 / 液压');
+    sysStep(s, 75); assert(y.out.irAllNav && y.out.apAvail, 'IR 对准未完成');
+    var cl = new FS.ChecklistManager(), st = f.getState(); st.lights = { beacon: true, nav: true };
+    cl.setPhase('afterStart'); var a = cl.status(st);
+    var bad = a.items.filter(function (x) { return !x.done; }).map(function (x) { return x.key; });
+    f.setFlapDetent(1); sysStep(s, 0.1);
+    return '双发 N1 ' + f.engines.map(function (e) { return e.n1.toFixed(1); }).join('/') + '%, IR NAV, AP 可用; 起动后检查单未完成项: ' + (bad.join(',') || '无');
+  });
+});
+test('冷舱: 没有液压时襟翼不动, 有液压后放出; ATT 模式不提供导航', function () {
+  var s = coldSim('A320neo'), f = s.fm, y = f.sys;
+  f.setFlapDetent(f.ac.flaps.length - 1); var p0 = f.flapPos; sysStep(s, 3);
+  assert(Math.abs(f.flapPos - p0) < 1e-6, '无液压襟翼仍在动');
+  f.engines.forEach(function (e) { e.state = 'running'; e.n1 = 22; e.n2 = 60; e.fuelOn = true; }); f.sys.setRunning(); sysStep(s, 3);
+  assert(f.flapPos > p0, '有液压后襟翼不动');
+  var z = coldSim('A320neo').fm.sys; z.set('bat1', true); z.setIr(0, 'ATT'); z.fm.update(DT);
+  for (var i = 0; i < 12 * HZ; i++) z.fm.update(DT);
+  assert(z.out.irAtt && !z.out.irNav, 'ATT 模式应只有姿态');
+  return 'OK';
+});
+test('cockpit3d.js: 冷舱开关 id 齐全 (空客 / 波音两套标签)', function () {
+  var src = fs.readFileSync(path.join(ROOT, 'js/cockpit3d.js'), 'utf8');
+  ["'elec-bat1'", "'elec-bat2'", "'elec-ext'", "'apu-start'", "'apu-bleed'", "'adirs-ir'", "'fuel-'", "'eng-mode'", "'eng-start-sel-'", "'xbleed'", "'hyd-eng1'", "'hyd-ptu'", "'pack1'", "'bleed-eng1'", "'probe-heat'", "'ai-wing'", "'sign-seatbelts'", "'xpdr'", "'tcas'", "rwyTurnoff"].forEach(function (k) {
+    assert(src.indexOf(k) >= 0, '缺少 ' + k);
+  });
+  return '20 组控件 id';
 });
 
 var pass = results.filter(function (r) { return r.ok; }).length;

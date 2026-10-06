@@ -28,7 +28,7 @@
 
     this.lights = {
       landing: false, taxi: false, strobe: false, beacon: true,
-      nav: true, logo: false, wing: false, cabin: false
+      nav: true, logo: false, wing: false, cabin: false, rwyTurnoff: false
     };
 
     this.traffic = [];
@@ -238,6 +238,9 @@
       self.hud.notify('重着陆! ' + Math.round(e.vs) + ' fpm — 请检查机体', 'error', 8000);
     });
     FS.Bus.on('fm:apuStart', function () { self.audio.playCue('apu_start'); });
+    // beta 0.4.2: 冷舱启动系统提示 (APU AVAIL / IR 对准完成 / 发动机起动等待原因 …)
+    FS.Bus.on('sys:hint', function (e) { if (self.running && self.hud) self.hud.notify(e.text, e.type || 'info', e.type === 'warn' ? 5000 : 3500); });
+    FS.Bus.on('ap:engageRefused', function (e) { if (self.hud) self.hud.notify('无法接通自动驾驶: ' + (e && e.reason || ''), 'warn', 3000); });
     FS.Bus.on('ap:engaged', function () { self.audio.playCue('autopilot_engage'); });
     FS.Bus.on('ap:disengaged', function (e) {
       self.hud.notify('自动驾驶断开: ' + (e.reason || '') + (e.athr ? ' · A/THR 保持' : '') + ' — 再按 T / AP 断开钮消音', 'warn', 5000);
@@ -488,6 +491,13 @@
       });
     }
 
+    /* ---- beta 0.4.2: 系统开关开局位置 (冷舱场景已在 setup 中断电; 其余场景全部在运行位置) ---- */
+    if (this.fm.sys) {
+      this.fm.sys.lights = this.lights;
+      var scCur = this.scenarioMgr.current;
+      if (!(scCur && scCur.coldDark)) this.fm.sys.setRunning();
+    }
+
     /* ---- 同步模型姿态 ---- */
     this._syncModel(0);
 
@@ -516,7 +526,8 @@
     this._vspeedsCache = null;
     this.hideLoading();
 
-    this.hud.notify('起飞前: 按 ? 或 F1 查看操作说明 · C 切换视角 · N 看仪表板 · Tab 侧边面板 · M 鼠标驾驶杆', 'info', 9000);
+    if (this.fm.sys && this.fm.sys.coldDark) this.hud.notify('冷舱启动: 抬头看头顶板, 用鼠标点击开关 (BAT 1+2 → EXT PWR → …); ECAM 显示下一步, 按 ? 查看完整检查单', 'info', 12000);
+    else this.hud.notify('起飞前: 按 ? 或 F1 查看操作说明 · C 切换视角 · N 看仪表板 · Tab 侧边面板 · M 鼠标驾驶杆', 'info', 9000);
     FS.Log.info('飞行开始: ' + typeKey + ' @ ' + dep.icao + '/' + runwayIdent + ' 场景=' + scenarioId);
 
     // 尝试请求指针锁定 (失败也无妨)
@@ -1225,7 +1236,7 @@
       // beta 0.4: 断开 → 警告音持续; 再按一次消音; 再按才重新接通
       var tg = ap.toggle();
       if (tg === 'silenced') this.hud.notify('AP 断开警告已消音 (再按 T 接通)', 'info', 2000);
-      else if (tg === 'refused') this.hud.notify('无法接通自动驾驶 (失速 / 严重超速)', 'warn', 2500);
+      else if (tg === 'refused') this.hud.notify('无法接通自动驾驶 (失速 / 严重超速 / IR 未对准 / 无电源)', 'warn', 2500);
     }
     if (input.consume('apThrottle')) {
       ap.ap.athr = !ap.ap.athr;
@@ -1296,7 +1307,7 @@
     /* --- 系统 --- */
     if (input.consume('apuToggle')) {
       if (fm.apuRunning) { fm.stopAPU(); this.hud.notify('APU 停车', 'info'); }
-      else { fm.startAPU(); this.hud.notify('APU 起动中…', 'info'); }
+      else if (fm.startAPU() !== false) this.hud.notify('APU 起动中…', 'info');
       var ab = global.document.getElementById('apu-btn');
       if (ab) ab.classList.toggle('on', fm.apuRunning);
     }
