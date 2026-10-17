@@ -33,8 +33,10 @@ function serveApp(request) {
   return net.fetch(pathToFileURL(file).toString());
 }
 
+const STORE_WEB = 'https://apps.microsoft.com/detail/9P25XZZM8JXT';
 function openExternal(url) {
   if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
+  else if (/^ms-windows-store:\/\/pdp\/\?productid=9P25XZZM8JXT$/i.test(url)) shell.openExternal(url).catch(() => shell.openExternal(STORE_WEB).catch(() => {}));
 }
 
 function createWindow() {
@@ -56,7 +58,8 @@ function createWindow() {
   });
   mainWindow.on('page-title-updated', (e) => { e.preventDefault(); mainWindow.setTitle(TITLE); });
   mainWindow.on('closed', () => { mainWindow = null; });
-  mainWindow.loadURL(START_URL);
+  // 商店版 (MSIX): 加 ?store=1, 更新提示的按钮改为打开 Microsoft Store 页面
+  mainWindow.loadURL((process.windowsStore || /[\\/]WindowsApps[\\/]/i.test(process.execPath)) ? START_URL + '?store=1' : START_URL);
 }
 
 app.on('second-instance', () => {

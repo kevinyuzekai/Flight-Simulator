@@ -64,6 +64,16 @@
           <h2>飞行设置 <span>SETTINGS</span></h2>
 
           <div class="field">
+            <label for="sound-volume">音效音量</label>
+            <div style="display:flex;gap:0.6rem;align-items:center">
+              <input id="sound-volume" type="range" min="0" max="100" step="5" value="80" style="flex:1">
+              <label style="display:flex;gap:0.3rem;align-items:center;white-space:nowrap"><input id="sound-mute" type="checkbox"> 静音</label>
+            </div>
+          </div>
+          <div class="field">
+            <button id="check-update-btn" type="button" class="btn btn-ghost">检查更新</button>
+          </div>
+          <div class="field">
             <label for="dep-airport">出发机场</label>
             <select id="dep-airport"></select>
           </div>
@@ -605,6 +615,7 @@
   <script src="js/camera.js"></script>
   <script src="js/input.js"></script>
   <script src="js/hud.js"></script>
+  <script src="js/update-check.js"></script>
   <script src="js/main.js"></script>
   <script src="js/credits.js"></script>
 </body>

@@ -1354,8 +1354,8 @@
     }
     if (input.consume('mute')) {
       if (this.audio.setMuted) {
-        var muted = this.audio.getMasterVolume && this.audio.getMasterVolume() > 0;
-        this.audio.setMuted(muted);
+        var muted = !FS.audioPrefs().muted;
+        FS.setAudioPrefs(null, muted);
         this.hud.notify(muted ? '已静音' : '取消静音', 'info', 1500);
       }
     }
@@ -1550,7 +1550,10 @@
     try {
       var ok = FS.Audio.init();
       if (ok) {
-        FS.Audio.setMasterVolume(0.8);
+        var pref = audioPrefs();
+        FS.Audio.setMasterVolume(pref.vol);
+        FS.Audio.setMuted(pref.muted);
+        if (FS.Audio.resume) FS.Audio.resume();
         FS.Log.info('音频引擎已启动');
       } else {
         FS.Log.warn('音频引擎不可用 (浏览器不支持或未授权)');
@@ -1560,6 +1563,49 @@
     }
   }
   FS.initAudioOnce = initAudioOnce;
+
+  /* beta 0.5.1: 音量 / 静音设置 (localStorage 持久化) + 首次用户操作时启动音频 (自动播放策略) */
+  var AUDIO_KEY = 'skyroute.audio';
+  function audioPrefs() {
+    var d = { vol: 0.8, muted: false };
+    try { var o = JSON.parse(global.localStorage.getItem(AUDIO_KEY) || '{}');
+      if (typeof o.vol === 'number' && isFinite(o.vol)) d.vol = Math.max(0, Math.min(1, o.vol));
+      d.muted = !!o.muted; } catch (e) { /* */ }
+    return d;
+  }
+  function saveAudioPrefs(p) { try { global.localStorage.setItem(AUDIO_KEY, JSON.stringify(p)); } catch (e) { /* */ } }
+  function setAudioPrefs(vol, muted) {
+    var p = audioPrefs();
+    if (vol !== null && vol !== undefined) p.vol = Math.max(0, Math.min(1, vol));
+    if (muted !== null && muted !== undefined) p.muted = !!muted;
+    saveAudioPrefs(p);
+    try { if (FS.Audio && FS.Audio.available) { FS.Audio.setMasterVolume(p.vol); FS.Audio.setMuted(p.muted); } } catch (e) { /* */ }
+    syncAudioUi(p);
+    return p;
+  }
+  function syncAudioUi(p) {
+    var d = global.document; if (!d) return;
+    var v = d.getElementById('sound-volume'), m = d.getElementById('sound-mute');
+    if (v) v.value = Math.round(p.vol * 100);
+    if (m) m.checked = p.muted;
+  }
+  FS.audioPrefs = audioPrefs;
+  FS.setAudioPrefs = setAudioPrefs;
+  (function bindAudioGesture() {
+    var d = global.document; if (!d || !d.addEventListener) return;
+    function kick() {
+      initAudioOnce();
+      try { var c = FS.Audio && FS.Audio.ctx; if (c && c.state === 'suspended' && c.resume && !(FS.sim && FS.sim.paused)) c.resume(); } catch (e) { /* */ }
+    }
+    ['pointerdown', 'keydown', 'touchstart', 'mousedown'].forEach(function (ev) { d.addEventListener(ev, kick, true); });
+    function bindUi() {
+      syncAudioUi(audioPrefs());
+      var v = d.getElementById('sound-volume'), m = d.getElementById('sound-mute');
+      if (v) v.addEventListener('input', function () { setAudioPrefs(+v.value / 100, null); });
+      if (m) m.addEventListener('change', function () { setAudioPrefs(null, m.checked); });
+    }
+    if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', bindUi); else bindUi();
+  })();
 
   FS.Sim = Sim;
   FS.boot = boot;
