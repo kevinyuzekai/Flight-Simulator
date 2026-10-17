@@ -489,7 +489,8 @@
     } else if (kind === 'taxi') {
       m = new THREE.MeshStandardMaterial({
         map: taxiTex(THREE), color: 0xffffff, roughness: 0.9, metalness: 0,
-        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2
+        // 比停机坪 (-1/-2) 更强: 滑行道与停机坪重叠处始终压在上面, 不会互相闪
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4
       });
       m.map.repeat.set(1, 6);
     } else if (kind === 'concrete') {
@@ -527,7 +528,8 @@
     return function () { return elev || 0; };
   }
 
-  function groundStrip(THREE, ax, az, bx, bz, width, hf) {
+  function groundStrip(THREE, ax, az, bx, bz, width, hf, yOff) {
+    if (yOff === undefined) yOff = 0.05;
     var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
     if (!(L > 2)) return null;
     var dxu = dx / L, dzu = dz / L;
@@ -544,7 +546,7 @@
         var px = x + rx * side, pz = z + rz * side;
         var o = k * 2 + s;
         pos[o * 3] = px;
-        pos[o * 3 + 1] = hf(px, pz) + 0.05;
+        pos[o * 3 + 1] = hf(px, pz) + yOff;
         pos[o * 3 + 2] = pz;
         uv[o * 2] = s; uv[o * 2 + 1] = v;
       }
@@ -561,7 +563,64 @@
     return g;
   }
 
-  function groundRect(THREE, cx, cz, len, wid, hdgDeg, hf) {
+  /** 沿整条折线生成连续带状路面 (拐点做斜接, 限制尖角长度)
+      比"每段矩形独立成面"更可靠: 拐弯处不留缺口, 相邻段也不重叠共面 (避免闪面) */
+  function ribbonGeo(THREE, pts, width, hf, yOff) {
+    if (yOff === undefined) yOff = 0.05;
+    var n = pts.length;
+    if (n < 2) return null;
+    var hw = width / 2;
+    var nx = new Array(n), nz = new Array(n), i;
+    for (i = 0; i < n; i++) {
+      var inx = 0, inz = 0, oux = 0, ouz = 0, L, dx, dz;
+      if (i > 0) {
+        dx = pts[i].x - pts[i - 1].x; dz = pts[i].z - pts[i - 1].z; L = Math.sqrt(dx * dx + dz * dz) || 1;
+        inx = -dz / L; inz = dx / L;
+      }
+      if (i < n - 1) {
+        dx = pts[i + 1].x - pts[i].x; dz = pts[i + 1].z - pts[i].z; L = Math.sqrt(dx * dx + dz * dz) || 1;
+        oux = -dz / L; ouz = dx / L;
+      }
+      if (i === 0) { nx[i] = oux; nz[i] = ouz; }
+      else if (i === n - 1) { nx[i] = inx; nz[i] = inz; }
+      else {
+        var mx = inx + oux, mz = inz + ouz, ml = Math.sqrt(mx * mx + mz * mz);
+        if (ml < 1e-4) { nx[i] = oux; nz[i] = ouz; }          // 几乎 180° 折返
+        else {
+          mx /= ml; mz /= ml;
+          var cs = mx * oux + mz * ouz;
+          if (cs < 0.62) cs = 0.62;                            // 限制尖角外伸 (≤1.61 倍半宽)
+          nx[i] = mx / cs; nz[i] = mz / cs;
+        }
+      }
+    }
+    var pos = new Float32Array(n * 2 * 3), uv = new Float32Array(n * 2 * 2), idx = [], acc = 0;
+    for (var k = 0; k < n; k++) {
+      if (k > 0) acc += Math.sqrt(Math.pow(pts[k].x - pts[k - 1].x, 2) + Math.pow(pts[k].z - pts[k - 1].z, 2));
+      for (var s = 0; s < 2; s++) {
+        var sg = s ? 1 : -1;
+        var px = pts[k].x + nx[k] * hw * sg, pz = pts[k].z + nz[k] * hw * sg;
+        var o = k * 2 + s;
+        pos[o * 3] = px;
+        pos[o * 3 + 1] = hf(px, pz) + yOff;
+        pos[o * 3 + 2] = pz;
+        uv[o * 2] = s; uv[o * 2 + 1] = acc / 40;
+      }
+    }
+    for (var q = 0; q < n - 1; q++) {
+      var i0 = q * 2, i1 = i0 + 1, i2 = i0 + 3, i3 = i0 + 2;
+      idx.push(i0, i1, i2, i0, i2, i3);
+    }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+
+  function groundRect(THREE, cx, cz, len, wid, hdgDeg, hf, yOff) {
+    if (yOff === undefined) yOff = 0.05;
     var h = hdgDeg * DEG;
     // 航向：0 = 北 = -Z；游戏 Z 南为正，所以前进方向：
     var fx = Math.sin(h), fz = -Math.cos(h);
@@ -576,7 +635,7 @@
     var pos = new Float32Array(12), uv = new Float32Array(8);
     for (var i = 0; i < 4; i++) {
       pos[i * 3] = corners[i][0];
-      pos[i * 3 + 1] = hf(corners[i][0], corners[i][1]) + 0.05;
+      pos[i * 3 + 1] = hf(corners[i][0], corners[i][1]) + yOff;
       pos[i * 3 + 2] = corners[i][1];
     }
     uv.set([0, 0, 1, 0, 1, 1, 0, 1]);
@@ -637,6 +696,73 @@
 
     group.add(root);
     return root;
+  }
+
+  /* ---------------------------------------------------------------------
+     滑行道灯光 (beta 0.4.2)
+     · 边灯: 蓝色 (taxiway edge light), 两侧, 间距 40 m
+     · 中线灯: 绿色 (taxiway centerline), 中线, 间距 20 m
+     · 出口/等待位置灯: 琥珀色
+     polylines: [{ pts:[{x,z}...], hw: 半宽 }]
+     按颜色合并为 InstancedMesh, 每座机场只增加 2 个 draw call。
+     --------------------------------------------------------------------- */
+  function taxiwayLights(THREE, group, hf, polylines) {
+    var EDGE = 0x2f6bff, CENTER = 0x35e06a, HOLD = 0xffb020;
+    var edge = [], cen = [], hold = [];
+    polylines.forEach(function (pl) {
+      var pts = pl.pts, hw = pl.hw;
+      for (var k = 0; k + 1 < pts.length; k++) {
+        var a = pts[k], b = pts[k + 1];
+        var dx = b.x - a.x, dz = b.z - a.z, L = Math.sqrt(dx * dx + dz * dz);
+        if (L < 4) continue;
+        var ux = dx / L, uz = dz / L, rx = -uz, rz = ux;
+        var s;
+        for (s = 20; s <= L - 8; s += 40) {
+          for (var sd = -1; sd <= 1; sd += 2) {
+            var ex = a.x + ux * s + rx * sd * (hw + 1.1);
+            var ez = a.z + uz * s + rz * sd * (hw + 1.1);
+            edge.push([ex, hf(ex, ez) + 0.34, ez]);   // 高出道面, 避免灯球半埋进路面造成闪面
+          }
+        }
+        for (s = 10; s <= L - 5; s += 20) {
+          var mx = a.x + ux * s, mz = a.z + uz * s;
+          cen.push([mx, hf(mx, mz) + 0.34, mz]);
+        }
+        // 折点处补一个琥珀色等待灯
+        if (k + 2 < pts.length) hold.push([b.x, hf(b.x, b.z) + 0.38, b.z]);
+      }
+    });
+    var geo = new THREE.SphereGeometry(0.28, 5, 3);
+    var m4 = new THREE.Matrix4();
+    function emit(list, color, name) {
+      if (!list.length) return;
+      var mm = new THREE.MeshBasicMaterial({ color: color, toneMapped: false });
+      // r149 的 InstancedMesh 没有实例包围盒, 视锥裁剪只看 geometry.boundingSphere ——
+      // 也就是共享几何在世界原点处的那个 0.28 m 小球, 相机一移开原点整批灯就会整体消失。
+      // 给这一批克隆一份几何并写入真实包围球: 该隐藏时正常隐藏, 不该隐藏时不会整批消失。
+      // (不能简单关掉裁剪: 单座大机场就有 1.5 万颗灯球, 全程绘制会明显掉帧)
+      var c = new THREE.Vector3(), i, d2;
+      for (i = 0; i < list.length; i++) { c.x += list[i][0]; c.y += list[i][1]; c.z += list[i][2]; }
+      c.multiplyScalar(1 / list.length);
+      var rad = 0;
+      for (i = 0; i < list.length; i++) {
+        d2 = (list[i][0] - c.x) * (list[i][0] - c.x) + (list[i][1] - c.y) * (list[i][1] - c.y) + (list[i][2] - c.z) * (list[i][2] - c.z);
+        if (d2 > rad) rad = d2;
+      }
+      var bg = geo.clone();
+      bg.boundingSphere = new THREE.Sphere(c, Math.sqrt(rad) + 0.35);
+      var im = new THREE.InstancedMesh(bg, mm, list.length);
+      for (i = 0; i < list.length; i++) {
+        m4.makeTranslation(list[i][0], list[i][1], list[i][2]);
+        im.setMatrixAt(i, m4);
+      }
+      im.instanceMatrix.needsUpdate = true;
+      im.name = name;
+      group.add(im);
+    }
+    emit(edge, EDGE, 'taxiEdgeLights');
+    emit(cen, CENTER, 'taxiCenterLights');
+    emit(hold, HOLD, 'taxiHoldLights');
   }
 
   function placeTower(THREE, group, cx, cy, cz, height) {
@@ -730,6 +856,125 @@
   }
 
   /* ---------------------------------------------------------------------
+     3b. 机场地面细节 (beta 0.4.2)
+         风向标 / 油库 / 雷达 / ILS 天线 / 防吹坪 / 围界栅栏
+         叠加在 OSM 真实布局与手工布局之上, 提升地景真实度
+     --------------------------------------------------------------------- */
+  function addGroundDetails(THREE, airport, group, hf) {
+    var defs = (FS.Runways && FS.Runways.runwayDefs) ? FS.Runways.runwayDefs(airport) : [];
+    if (!defs.length) return;
+    var metal = mat(THREE, 'metal'), concrete = mat(THREE, 'concrete');
+    defs.sort(function (a, b) { return b.L - a.L; });
+    var R = defs[0];
+    var midX = (R.a.x + R.b.x) / 2, midZ = (R.a.z + R.b.z) / 2;
+    var rx = -R.d.z, rz = R.d.x, fx = R.d.x, fz = R.d.z;   // 右向 / 前向
+    var halfW = R.w / 2;
+
+    /* 风向标 x2 (跑道两侧接地区附近) */
+    function windsock(x, z) {
+      var g = new THREE.Group(), y = hf(x, z);
+      g.position.set(x, y, z);
+      var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.20, 6, 6), metal);
+      pole.position.y = 3; g.add(pole);
+      var sock = new THREE.Mesh(new THREE.ConeGeometry(0.55, 2.6, 8, 1, true),
+        new THREE.MeshStandardMaterial({ color: 0xff5a2a, roughness: 0.9, side: THREE.DoubleSide }));
+      sock.rotation.z = Math.PI / 2; sock.position.set(1.35, 5.7, 0); g.add(sock);
+      var sock2 = new THREE.Mesh(new THREE.ConeGeometry(0.48, 2.2, 8, 1, true),
+        new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.9, side: THREE.DoubleSide }));
+      sock2.rotation.z = Math.PI / 2; sock2.position.set(3.4, 5.7, 0); g.add(sock2);
+      group.add(g);
+    }
+    windsock(midX + rx * (halfW + 60), midZ + rz * (halfW + 60));
+    windsock(midX - rx * (halfW + 60), midZ - rz * (halfW + 60));
+
+    /* 油库: 3 个立式储罐 + 围堰 */
+    var cxT = midX + rx * (halfW + 320), czT = midZ + rz * (halfW + 320), yT = hf(cxT, czT);
+    var tankM = new THREE.MeshStandardMaterial({ color: 0xcfd4d8, roughness: 0.45, metalness: 0.5 });
+    for (var i = -1; i <= 1; i++) {
+      var tx = cxT + rx * i * 34, tz = czT + rz * i * 34;
+      var tank = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 16, 16), tankM);
+      tank.position.set(tx, yT + 8, tz); tank.castShadow = true; group.add(tank);
+      var cap = new THREE.Mesh(new THREE.CylinderGeometry(9.4, 9.4, 1.2, 16), metal);
+      cap.position.set(tx, yT + 16.4, tz); group.add(cap);
+    }
+    var berm = new THREE.Mesh(new THREE.BoxGeometry(120, 1.5, 70), concrete);
+    berm.position.set(cxT, yT + 0.4, czT); group.add(berm);
+
+    /* 雷达 (ASR): 塔架 + 抛物面天线 */
+    var cxR = midX + rx * (halfW + 150) + fx * 180, czR = midZ + rz * (halfW + 150) + fz * 180, yR = hf(cxR, czR);
+    var mast = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.6, 16, 8), metal);
+    mast.position.set(cxR, yR + 8, czR); group.add(mast);
+    var dish = new THREE.Mesh(new THREE.SphereGeometry(5, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), metal);
+    dish.rotation.x = -Math.PI / 2.6; dish.position.set(cxR, yR + 17, czR); group.add(dish);
+
+    /* ILS: 航向台 (远端) + 下滑台 (接地区侧向) */
+    var hx = R.b.x + fx * 300, hz = R.b.z + fz * 300, hy = hf(hx, hz);
+    for (var hi = -3; hi <= 3; hi++) {
+      var pxh = hx + rx * hi * 4, pzh = hz + rz * hi * 4;
+      var ant = new THREE.Mesh(new THREE.BoxGeometry(1.2, 3, 0.4), metal);
+      ant.position.set(pxh, hy + 1.5, pzh); group.add(ant);
+    }
+    var gx = R.a.x + fx * 300 + rx * (halfW + 30), gz = R.a.z + fz * 300 + rz * (halfW + 30), gy = hf(gx, gz);
+    var gsh = new THREE.Mesh(new THREE.BoxGeometry(2.5, 2, 1), metal);
+    gsh.position.set(gx, gy + 2.5, gz); group.add(gsh);
+    var gpost = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2, 6), metal);
+    gpost.position.set(gx, gy + 1, gz); group.add(gpost);
+
+    /* 防吹坪 (blast fence): 停机坪端头的一排立板 */
+    var bx = midX + rx * (halfW + 200) - fx * 120, bz = midZ + rz * (halfW + 200) - fz * 120;
+    var bm = new THREE.MeshStandardMaterial({ color: 0x8a9098, roughness: 0.7, metalness: 0.4, side: THREE.DoubleSide });
+    var byaw = Math.atan2(fx, fz);
+    for (var bi = -6; bi <= 6; bi++) {
+      var pxb = bx + fx * bi * 10, pzb = bz + fz * bi * 10;
+      var plate = new THREE.Mesh(new THREE.BoxGeometry(9.6, 4, 0.3), bm);
+      plate.position.set(pxb, hf(pxb, pzb) + 2, pzb);
+      plate.rotation.y = byaw;
+      group.add(plate);
+    }
+
+    /* 围界栅栏: 环绕跑道群的矩形, 立柱 (InstancedMesh) + 3 层铁丝 */
+    var minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    defs.forEach(function (D) {
+      [D.a, D.b].forEach(function (p) {
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+      });
+    });
+    var pad = 260;
+    minX -= pad; maxX += pad; minZ -= pad; maxZ += pad;
+    if (maxX - minX <= 8000 && maxZ - minZ <= 8000) {
+      var pts = [], step = 42;
+      function edge(x0, z0, x1, z1) {
+        var dx = x1 - x0, dz = z1 - z0, LL = Math.sqrt(dx * dx + dz * dz), n = Math.max(1, Math.round(LL / step));
+        for (var k = 0; k <= n; k++) pts.push([x0 + dx * k / n, z0 + dz * k / n]);
+      }
+      edge(minX, minZ, maxX, minZ); edge(maxX, minZ, maxX, maxZ);
+      edge(maxX, maxZ, minX, maxZ); edge(minX, maxZ, minX, minZ);
+      var postGeo = new THREE.CylinderGeometry(0.12, 0.12, 2.4, 5);
+      var im = new THREE.InstancedMesh(postGeo, metal, pts.length);
+      var m4 = new THREE.Matrix4();
+      for (var pi = 0; pi < pts.length; pi++) {
+        m4.makeTranslation(pts[pi][0], hf(pts[pi][0], pts[pi][1]) + 1.2, pts[pi][1]);
+        im.setMatrixAt(pi, m4);
+      }
+      im.instanceMatrix.needsUpdate = true; group.add(im);
+      var wirePos = [];
+      for (var lvl = 0; lvl < 3; lvl++) {
+        for (var wi = 0; wi < pts.length - 1; wi++) {
+          var a2 = pts[wi], b2 = pts[wi + 1];
+          wirePos.push(a2[0], hf(a2[0], a2[1]) + 0.6 + lvl * 0.85, a2[1]);
+          wirePos.push(b2[0], hf(b2[0], b2[1]) + 0.6 + lvl * 0.85, b2[1]);
+        }
+      }
+      var lg = new THREE.BufferGeometry();
+      lg.setAttribute('position', new THREE.Float32BufferAttribute(wirePos, 3));
+      group.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({
+        color: 0x9aa0a6, transparent: true, opacity: 0.5
+      })));
+    }
+  }
+
+  /* ---------------------------------------------------------------------
      4. 由跑道生成通用布局
      --------------------------------------------------------------------- */
   function genericLayout(airport) {
@@ -803,6 +1048,7 @@
       group.userData.source = 'osm';
       group.userData.osmStats = r.stats;
       group.userData.towerPos = towerPos;
+      try { addGroundDetails(THREE, airport, group, hf); } catch (eGD) { /* 忽略 */ }
       group.userData.dispose = function () {
         group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
       };
@@ -816,9 +1062,10 @@
     }
 
     // 停机坪
-    (layout.aprons || []).forEach(function (a) {
+    (layout.aprons || []).forEach(function (a, pi) {
       var w = worldES(a.e, a.s);
-      var geo = groundRect(THREE, w.x, w.z, a.len, a.wid, a.hdg || 0, hf);
+      // 毫米级分层, 与滑行道/跑道错开 (重叠处不再共面互闪)
+      var geo = groundRect(THREE, w.x, w.z, a.len, a.wid, a.hdg || 0, hf, 0.048 + 0.001 * (pi % 4));
       if (!geo) return;
       var m = mat(THREE, 'apron').clone();
       m.map = apronTex(THREE).clone();
@@ -832,13 +1079,14 @@
     });
 
     // 滑行道
-    (layout.taxiways || []).forEach(function (t) {
+    var taxiLights = [];
+    (layout.taxiways || []).forEach(function (t, ti) {
       var h = (t.hdg || 0) * DEG;
       var fx = Math.sin(h), fz = -Math.cos(h);
       var w0 = worldES(t.e, t.s);
       var ax = w0.x - fx * t.len / 2, az = w0.z - fz * t.len / 2;
       var bx = w0.x + fx * t.len / 2, bz = w0.z + fz * t.len / 2;
-      var geo = groundStrip(THREE, ax, az, bx, bz, t.wid || 25, hf);
+      var geo = groundStrip(THREE, ax, az, bx, bz, t.wid || 25, hf, 0.053 + 0.0012 * (ti % 4));
       if (!geo) return;
       var m = mat(THREE, 'taxi').clone();
       m.map = taxiTex(THREE).clone();
@@ -849,7 +1097,9 @@
       mesh.receiveShadow = true;
       group.add(mesh);
       matsUsed.push(m);
+      taxiLights.push({ pts: [{ x: ax, z: az }, { x: bx, z: bz }], hw: (t.wid || 25) / 2 });
     });
+    try { taxiwayLights(THREE, group, hf, taxiLights); } catch (eTL) { /* 忽略 */ }
 
     // 航站楼
     (layout.terminals || []).forEach(function (t) {
@@ -914,6 +1164,7 @@
     group.userData.detailed = detailed;
     group.userData.source = detailed ? 'layout' : 'generic';
     group.userData.towerPos = towerPos;
+    try { addGroundDetails(THREE, airport, group, hf); } catch (eGD2) { /* 忽略 */ }
     group.userData.dispose = function () {
       group.traverse(function (o) {
         if (o.geometry) o.geometry.dispose();
@@ -1031,7 +1282,7 @@
         break;
       case 'taxi':
         m = new THREE.MeshStandardMaterial({ map: taxiLineTex(THREE), color: 0xffffff, roughness: 0.9, metalness: 0,
-          polygonOffset: true, polygonOffsetFactor: -1.5, polygonOffsetUnits: -3 });
+          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
         break;
       case 'bridge': m = mat(THREE, 'bridge'); break;
       default: m = mat(THREE, 'metal');
@@ -1068,42 +1319,77 @@
 
     /* --- 停机坪 --- */
     var apron = new Acc();
-    (data.a || []).forEach(function (A) {
+    (data.a || []).forEach(function (A, ai) {
       var outer = ringPts(A[0]), holes = (A[1] || []).map(ringPts);
       var contour = outer.map(function (q) { return new V2(q.x, q.z); });
       var hv = holes.map(function (h) { return h.map(function (q) { return new V2(q.x, q.z); }); });
       var faces;
       try { faces = tri(contour, hv); } catch (e) { return; }
       var all = outer.concat.apply(outer, holes), base = apron.p.length / 3;
-      all.forEach(function (q) { apron.v(q.x, hf(q.x, q.z) + 0.05, q.z, 0, 1, 0, q.x / 40, q.z / 40); });
+      // 毫米级分层: 相邻/重叠的停机坪不再完全共面 (否则深度值只差 1 个 ulp, 会随机互闪)
+      var ayE = 0.048 + 0.001 * (ai % 4);
+      all.forEach(function (q) { apron.v(q.x, hf(q.x, q.z) + ayE, q.z, 0, 1, 0, q.x / 40, q.z / 40); });
       faces.forEach(function (f) { apron.triUp(base + f[0], base + f[1], base + f[2]); });
       stats.a++;
     });
 
     /* --- 滑行道 --- */
     var taxi = new Acc();
-    (data.t || []).forEach(function (T) {
-      var hw = T[0] / 2, pts = ringPts(T[1]), vAcc = 0;
-      for (var k = 0; k + 1 < pts.length; k++) {
-        var a = pts[k], b = pts[k + 1], dx = b.x - a.x, dz = b.z - a.z, L = Math.sqrt(dx * dx + dz * dz);
-        if (L < 0.5) continue;
-        var rx = -dz / L * hw, rz = dx / L * hw, base = taxi.p.length / 3, v1 = vAcc + L / 40;
-        taxi.v(a.x - rx, hf(a.x - rx, a.z - rz) + 0.05, a.z - rz, 0, 1, 0, 0, vAcc);
-        taxi.v(a.x + rx, hf(a.x + rx, a.z + rz) + 0.05, a.z + rz, 0, 1, 0, 1, vAcc);
-        taxi.v(b.x + rx, hf(b.x + rx, b.z + rz) + 0.05, b.z + rz, 0, 1, 0, 1, v1);
-        taxi.v(b.x - rx, hf(b.x - rx, b.z - rz) + 0.05, b.z - rz, 0, 1, 0, 0, v1);
-        taxi.triUp(base, base + 1, base + 2); taxi.triUp(base, base + 2, base + 3);
-        vAcc = v1;
-        // 拐点补角圆盘 (只用沥青区 u=0.25, 不画线)
-        if (k + 2 < pts.length) {
-          var cb = taxi.p.length / 3, segN = 8;
-          taxi.v(b.x, hf(b.x, b.z) + 0.05, b.z, 0, 1, 0, 0.25, 0.5);
-          for (var s = 0; s <= segN; s++) {
-            var ang = s / segN * Math.PI * 2, px = b.x + Math.cos(ang) * hw, pz = b.z + Math.sin(ang) * hw;
-            taxi.v(px, hf(px, pz) + 0.05, pz, 0, 1, 0, 0.25, 0.5);
-            if (s) taxi.triUp(cb, cb + s, cb + s + 1);
+    var taxiLightPolys = [];
+    (data.t || []).forEach(function (T, wi) {
+      var hw = T[0] / 2, pts = ringPts(T[1]);
+      if (pts.length < 2) return;
+      taxiLightPolys.push({ pts: pts, hw: hw });
+      var n = pts.length, k;
+      // 拐点用斜接 (miter) 法线: 相邻两段共用同一条端边 —— 拐弯处既不留缺口也不重叠。
+      // 旧做法是"每段一个矩形 + 拐点补圆盘", 圆盘与两侧矩形完全共面重叠, 深度值只差 1 个 ulp,
+      // 相机一动就随机互闪; 同一条 way 的段与段之间也重叠。
+      var mx = new Array(n), mz = new Array(n);
+      for (k = 0; k < n; k++) {
+        var inx = 0, inz = 0, oux = 0, ouz = 0, dx, dz, L;
+        if (k > 0) { dx = pts[k].x - pts[k - 1].x; dz = pts[k].z - pts[k - 1].z; L = Math.sqrt(dx * dx + dz * dz) || 1; inx = -dz / L; inz = dx / L; }
+        if (k < n - 1) { dx = pts[k + 1].x - pts[k].x; dz = pts[k + 1].z - pts[k].z; L = Math.sqrt(dx * dx + dz * dz) || 1; oux = -dz / L; ouz = dx / L; }
+        if (k === 0) { mx[k] = oux; mz[k] = ouz; }
+        else if (k === n - 1) { mx[k] = inx; mz[k] = inz; }
+        else {
+          var sx = inx + oux, sz = inz + ouz, sl = Math.sqrt(sx * sx + sz * sz);
+          if (sl < 1e-4) { mx[k] = oux; mz[k] = ouz; }        // 近似 180° 折返
+          else {
+            sx /= sl; sz /= sl;
+            var cs = sx * oux + sz * ouz;
+            if (cs < 0.62) cs = 0.62;                            // 限制尖角外伸 (≤1.61 倍半宽, 急折返不再鼓成一大块)
+            mx[k] = sx / cs; mz[k] = sz / cs;
           }
         }
+      }
+      // 每条 way 毫米级抬升错开: T 型路口/交叉处与别的滑行道完全共面时会互闪
+      // (仍低于跑道 0.06, 跑道上的标线在交叉口不会被盖住)
+      var yE = 0.053 + 0.0012 * (wi % 4), vAcc = 0;
+      for (k = 0; k + 1 < n; k++) {
+        var a = pts[k], b = pts[k + 1];
+        var sdx = b.x - a.x, sdz = b.z - a.z, sL = Math.sqrt(sdx * sdx + sdz * sdz);
+        if (sL < 0.5) continue;
+        var snx = -sdz / sL, snz = sdx / sL;
+        var sub = Math.max(1, Math.ceil(sL / 20));            // 每 ≤20 m 一段, 道面贴合地形起伏
+        for (var q2 = 0; q2 < sub; q2++) {
+          var t0 = q2 / sub, t1 = (q2 + 1) / sub;
+          var p0x = a.x + sdx * t0, p0z = a.z + sdz * t0;
+          var p1x = a.x + sdx * t1, p1z = a.z + sdz * t1;
+          var n0x = q2 === 0 ? mx[k] : snx, n0z = q2 === 0 ? mz[k] : snz;
+          var n1x = q2 === sub - 1 ? mx[k + 1] : snx, n1z = q2 === sub - 1 ? mz[k + 1] : snz;
+          var v0 = vAcc + sL * t0 / 40, v1 = vAcc + sL * t1 / 40;
+          var base = taxi.p.length / 3;
+          var c0x = p0x - n0x * hw, c0z = p0z - n0z * hw;
+          var c1x = p0x + n0x * hw, c1z = p0z + n0z * hw;
+          var c2x = p1x + n1x * hw, c2z = p1z + n1z * hw;
+          var c3x = p1x - n1x * hw, c3z = p1z - n1z * hw;
+          taxi.v(c0x, hf(c0x, c0z) + yE, c0z, 0, 1, 0, 0, v0);
+          taxi.v(c1x, hf(c1x, c1z) + yE, c1z, 0, 1, 0, 1, v0);
+          taxi.v(c2x, hf(c2x, c2z) + yE, c2z, 0, 1, 0, 1, v1);
+          taxi.v(c3x, hf(c3x, c3z) + yE, c3z, 0, 1, 0, 0, v1);
+          taxi.triUp(base, base + 1, base + 2); taxi.triUp(base, base + 2, base + 3);
+        }
+        vAcc += sL / 40;
       }
       stats.t++;
     });
@@ -1174,6 +1460,9 @@
       group.add(m);
     });
 
+    /* --- 滑行道灯光 (蓝色边灯 + 绿色中线灯) --- */
+    try { taxiwayLights(THREE, group, hf, taxiLightPolys); } catch (eTL) { /* 忽略 */ }
+
     /* --- 塔台 --- */
     var towerPos = null;
     (data.c || []).forEach(function (C) {
@@ -1239,18 +1528,27 @@
       var tags = el.tags || {};
       var aeroway = tags.aeroway || '';
       if (aeroway === 'taxiway' || aeroway === 'apron') {
-        for (var i = 0; i < el.geometry.length - 1; i++) {
-          var a = FS.Geo.toWorld(el.geometry[i].lat, el.geometry[i].lon);
-          var b = FS.Geo.toWorld(el.geometry[i + 1].lat, el.geometry[i + 1].lon);
-          var wid = aeroway === 'apron' ? 40 : 22;
-          var geo = groundStrip(THREE, a.x, a.z, b.x, b.z, wid, hf);
-          if (!geo) continue;
-          var mesh = new THREE.Mesh(geo, mat(THREE, aeroway === 'apron' ? 'apron' : 'taxi'));
-          mesh.name = 'osm:' + aeroway;
-          mesh.receiveShadow = true;
-          group.add(mesh);
-          added++;
+        // 整条 way 合成一条连续路面: 拐弯处不再留缝, 也不会出现共面重叠的段
+        var pts = [], clean = [], i;
+        for (i = 0; i < el.geometry.length; i++) {
+          var w = FS.Geo.toWorld(el.geometry[i].lat, el.geometry[i].lon);
+          pts.push({ x: w.x, z: w.z });
         }
+        for (i = 0; i < pts.length; i++) {
+          var last = clean[clean.length - 1];
+          if (!last || Math.abs(pts[i].x - last.x) > 0.5 || Math.abs(pts[i].z - last.z) > 0.5) clean.push(pts[i]);
+        }
+        if (clean.length < 2) return;
+        var wid = aeroway === 'apron' ? 40 : 22;
+        // 毫米级分层: 滑行道略高于停机坪 (但低于跑道 0.06), 重叠处不会随机互闪
+        var yOff = (aeroway === 'apron' ? 0.048 : 0.053) + 0.0012 * (added % 4);
+        var geo = ribbonGeo(THREE, clean, wid, hf, yOff);
+        if (!geo) return;
+        var mesh = new THREE.Mesh(geo, mat(THREE, aeroway === 'apron' ? 'apron' : 'taxi'));
+        mesh.name = 'osm:' + aeroway;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+        added++;
       }
     });
     return added;
@@ -1278,7 +1576,66 @@
     return { groups: groups, towerByIcao: towerByIcao };
   }
 
+  /* ---------------------------------------------------------------------
+     停机位 (供「冷舱启动」等场景把飞机停在停机坪上)
+       从停机坪矩形推算: 机位在停机坪靠外侧的地面上, 机头朝向航站楼一侧,
+       沿停机坪长轴排列若干机位。这样保证飞机始终停在道面上, 不会压到航站楼。
+     返回世界坐标 [{ x, z, hdg, name }]
+     --------------------------------------------------------------------- */
+  function parkingStands(icao, opts) {
+    opts = opts || {};
+    var airport = (FS.Airports && FS.Airports.byIcao) ? FS.Airports.byIcao(icao) : null;
+    if (!airport || !FS.Geo) return [];
+    var layout = LAYOUTS[icao] || genericLayout(airport);
+    var aprons = layout.aprons || [];
+    if (!aprons.length) return [];
+    var arp = FS.Geo.toWorld(airport.lat, airport.lon);
+    function worldE(e, s) { return { x: arp.x + e, z: arp.z + s }; }
+    // 选离航站楼最近的停机坪
+    var terms = layout.terminals || [];
+    var best = aprons[0], bestD = Infinity, bestTerm = null;
+    for (var ai = 0; ai < aprons.length; ai++) {
+      var ac = worldE(aprons[ai].e, aprons[ai].s);
+      for (var ti = 0; ti < terms.length; ti++) {
+        var tc = worldE(terms[ti].e, terms[ti].s);
+        var dd = Math.hypot(tc.x - ac.x, tc.z - ac.z);
+        if (dd < bestD) { bestD = dd; best = aprons[ai]; bestTerm = terms[ti]; }
+      }
+    }
+    var h = (best.hdg || 0) * DEG;
+    var fx = Math.sin(h), fz = -Math.cos(h);          // 停机坪长轴
+    var rx = Math.cos(h), rz = Math.sin(h);           // 停机坪侧向
+    var C = worldE(best.e, best.s);
+    // 航站楼在停机坪的哪一侧 (没有航站楼信息时默认 -r 侧)
+    var side = -1;
+    if (bestTerm) {
+      var T = worldE(bestTerm.e, bestTerm.s);
+      side = ((T.x - C.x) * rx + (T.z - C.z) * rz) >= 0 ? 1 : -1;
+    }
+    var halfWid = (best.wid || 160) / 2, halfLen = (best.len || 400) / 2;
+    var BODY_HALF = 32;                               // A330 半长, 保证机头仍落在道面上
+    var lat = -side * Math.max(0, halfWid - BODY_HALF - 14);   // 靠停机坪外侧
+    var hdg = Math.atan2(rx * side, -rz * side) / DEG;         // 机头朝航站楼
+    if (hdg < 0) hdg += 360;
+    var spacing = 74;
+    var span = Math.max(0, Math.min(halfLen - BODY_HALF - 12, 360));
+    var n = span < spacing ? 1 : (Math.floor(span * 2 / spacing) + 1);
+    var list = [];
+    for (var k = 0; k < n; k++) {
+      var off = n === 1 ? 0 : (-span + (2 * span) * k / (n - 1));
+      list.push({
+        x: C.x + fx * off + rx * lat,
+        z: C.z + fz * off + rz * lat,
+        hdg: hdg,
+        name: 'ST' + (k + 1)
+      });
+    }
+    if (opts.index) return [list[Math.min(opts.index, list.length - 1)]];
+    return list;
+  }
+
   FS.Airport3D = {
+    parkingStands: parkingStands,
     layouts: LAYOUTS,
     buildAirport: buildAirport3D,
     nearbyBuild: nearbyBuild,

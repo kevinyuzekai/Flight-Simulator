@@ -296,7 +296,9 @@
         <div class="ped-section">
           <div class="ped-label">其他 <span>MISC</span></div>
           <div class="ped-row">
+            <button id="battery-btn" class="ped-btn">电源</button>
             <button id="park-brake" class="ped-btn">停留刹车</button>
+            <button id="pushback-btn" class="ped-btn">推出</button>
             <button id="spoiler-arm" class="ped-btn">扰流板预位</button>
             <button id="speedbrake-toggle" class="ped-btn">减速板</button>
           </div>
@@ -448,7 +450,9 @@
             <tr><td><kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>F</kbd></td><td>襟翼 收一档 / 放一档（<kbd>V</kbd> 也可放）</td></tr>
             <tr><td><kbd>X</kbd></td><td>减速板</td></tr>
             <tr><td><kbd>R</kbd></td><td>反推预位</td></tr>
+            <tr><td><kbd>Shift</kbd>+<kbd>E</kbd></td><td>电池 / 电源主开关（冷舱启动时先接通，座舱点亮）</td></tr>
             <tr><td><kbd>Shift</kbd>+<kbd>A</kbd></td><td>APU 起动（配合 <kbd>Ctrl</kbd>+<kbd>S</kbd> 起动发动机）</td></tr>
+            <tr><td><kbd>Shift</kbd>+<kbd>P</kbd></td><td>地面推出（牵引车，再按一次停止）</td></tr>
           </table>
         </div>
 
@@ -563,22 +567,28 @@
   <script src="js/autopilot.js"></script>
   <script src="js/avionics.js"></script>
   <!-- beta 0.2: 真实外形飞机模型 (CC BY 4.0, 见 ASSETS_LICENSES.md); 以 JS 内嵌, file:// 可直接加载 -->
+  <script src="models/tex_cockpit_airbus.js"></script>
   <script src="models/tex_a350.js"></script>
-  <script src="models/tex_a320.js"></script>
-  <script src="models/tex_b737.js"></script>
   <script src="models/tex_b787.js"></script>
   <script src="models/tex_a330.js"></script>
-  <script src="models/tex_b737max.js"></script>
-  <script src="models/tex_b777.js"></script>
+  <script src="models/tex_a320ceo.js"></script>
+  <script src="models/tex_a320neo.js"></script>
+  <script src="models/tex_a321neo.js"></script>
+  <script src="models/tex_b738g.js"></script>
+  <script src="models/tex_b737maxg.js"></script>
+  <script src="models/tex_b777g.js"></script>
   <script src="models/ac_a350_900.js"></script>
   <script src="models/ac_a350_1000.js"></script>
   <script src="models/ac_a320neo.js"></script>
+  <script src="models/ac_a320ceo.js"></script>
   <script src="models/ac_a321neo.js"></script>
   <script src="models/ac_b737_800.js"></script>
   <script src="models/ac_b787_9.js"></script>
   <script src="models/ac_a330_300.js"></script>
   <script src="models/ac_b737_max8.js"></script>
   <script src="models/ac_b777_300er.js"></script>
+  <script src="models/ac_c919.js"></script>
+  <script src="models/ac_e190.js"></script>
   <script src="js/aircraft3d.js"></script>
   <script src="js/environment.js"></script>
   <script src="js/runways.js"></script>
@@ -588,7 +598,10 @@
   <script src="js/joystick.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/scenarios.js"></script>
+  <script src="js/overhead-layouts.js"></script>
+  <script src="js/pedestal-layouts.js"></script>
   <script src="js/cockpit3d.js"></script>
+  <script src="js/cabin3d.js"></script>
   <script src="js/camera.js"></script>
   <script src="js/input.js"></script>
   <script src="js/hud.js"></script>

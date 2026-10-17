@@ -93,6 +93,7 @@
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.autoClear = true;
     this.renderer.setClearColor(0x87ceeb, 1);
+    this.renderer.localClippingEnabled = true;      // 起落架收放用局部裁剪平面 (A330: 收进舱内不穿透机翼)
     this.maxDpr = dpr;
   };
 
@@ -420,6 +421,7 @@
       modelOpts.livery = {
         body: livery.body, belly: livery.belly, accent: livery.accent,
         tail: livery.tail, stripe: livery.stripe,
+        logo: livery.logo || null,
         engine: FS.AIRCRAFT_DB[typeKey].livery.engine,
         wing: FS.AIRCRAFT_DB[typeKey].livery.wing,
         gear: FS.AIRCRAFT_DB[typeKey].livery.gear,
@@ -470,6 +472,16 @@
       } catch (e3) { this.cockpit3d = null; FS.Log.warn('三维驾驶舱创建失败: ' + e3.message); }
     }
     this._applyCockpitUi(true);
+
+    /* ---- beta 0.4.2: 三维客舱 (仅在 "客舱" 视角显示) ---- */
+    this.cabin3d = null;
+    if (FS.Cabin3D) {
+      try {
+        this.cabin3d = new FS.Cabin3D(THREE, typeKey, { sim: this });
+        this.aircraftModel.group.add(this.cabin3d.group);
+        FS.Log.info('三维客舱已创建 (' + typeKey + ')');
+      } catch (eC) { this.cabin3d = null; FS.Log.warn('三维客舱创建失败: ' + eC.message); }
+    }
 
     /* ---- 声音 ---- */
     this.audio.loadAircraft(typeKey);
@@ -537,6 +549,7 @@
   Sim.prototype._teardown = function () {
     var THREE = this.THREE;
     if (this.cockpit3d) { try { this.cockpit3d.dispose(); } catch (e0) { /* */ } this.cockpit3d = null; }
+    if (this.cabin3d) { try { this.cabin3d.dispose(); } catch (e1) { /* */ } this.cabin3d = null; }
     if (this.cameraRig) { this.cameraRig.setCockpit3D(null); this.cameraRig.use3d = false; }
     if (this.aircraftRoot) {
       this.scene.remove(this.aircraftRoot);
@@ -959,6 +972,12 @@
       if (use3d) this.cockpit3d.update(rawDt, st, this._displayData(st));
     }
     if (use3d !== this._lastUse3d) { this._lastUse3d = use3d; this._applyCockpitUi(); }
+    // beta 0.4.2: 三维客舱 (仅 "客舱" 视角)
+    if (this.cabin3d) {
+      var useCabin = this.cameraRig.mode === 'cabin';
+      this.cabin3d.setActive(useCabin);
+      if (useCabin) this.cabin3d.update(rawDt, st);
+    }
     this.cameraRig.update(rawDt, st, input);
 
     /* ================= 音效 ================= */
@@ -1123,7 +1142,7 @@
     // beta 0.3.1+: 已取消 2D 六屏; 仅在 Shift+H 打开时绘制 HUD 平视显示器
     if (this.frame % 2 !== 0) return;
     var hcv = this.hudDisplay && this.hudDisplay.canvas;
-    if (this._hudVisible !== true) {
+    if (this._hudVisible !== true || (st && !st.electricalPower)) {
       if (hcv && this._hudCleared !== true) { this.hudDisplay.ctx.clearRect(0, 0, hcv.width, hcv.height); this._hudCleared = true; }
       return;
     }
@@ -1215,11 +1234,18 @@
       if (pb) pb.classList.toggle('on', fm.parkingBrake);
       this.hud.notify('停留刹车 ' + (fm.parkingBrake ? 'ON' : 'OFF'), 'info');
     }
+    /* --- 地面推出 (牵引车) --- */
+    if (input.consume('pushbackToggle')) {
+      if (fm.togglePushback()) this.hud.notify('推出中… 再按 Shift+P 停止', 'info', 2500);
+      else this.hud.notify('推出结束', 'info', 1800);
+    }
 
-    /* --- 油门预设 --- */
-    if (input.consume('throttleIdle')) { fm.setThrottle('all', 0); this.hud.notify('油门 慢车', 'info', 1200); }
-    if (input.consume('throttleClimb')) { fm.setThrottle('all', 0.82); this.hud.notify('油门 爬升推力', 'info', 1200); }
+    /* --- 油门预设 (数字键 8 / 9 / 0) --- */
+    // beta 0.4.2: setThrottlePreset 同步油门轴, 否则预设下一秒就被摇杆轴值覆盖
+    if (input.consume('throttleIdle')) { input.setThrottlePreset(0); fm.setThrottle('all', 0); this.hud.notify('油门 慢车', 'info', 1200); }
+    if (input.consume('throttleClimb')) { input.setThrottlePreset(0.82); fm.setThrottle('all', 0.82); this.hud.notify('油门 爬升推力', 'info', 1200); }
     if (input.consume('throttleTOGA')) {
+      input.setThrottlePreset(1);
       fm.setThrottle('all', 1);
       if (ap) { ap.ap.thrustMode = 'TOGA'; ap.ap.athr = fm.ap.athr; }
       this.audio.playCue('takeoff_config');
@@ -1305,17 +1331,26 @@
     }
 
     /* --- 系统 --- */
+    if (input.consume('batteryToggle')) {
+      var bat = fm.toggleBattery();
+      this.hud.notify('电池主开关 ' + (bat ? 'ON — 座舱通电' : 'OFF — 座舱断电'), 'info', 2000);
+      var bb = global.document.getElementById('battery-btn');
+      if (bb) bb.classList.toggle('on', bat);
+    }
     if (input.consume('apuToggle')) {
       if (fm.apuRunning) { fm.stopAPU(); this.hud.notify('APU 停车', 'info'); }
-      else if (fm.startAPU() !== false) this.hud.notify('APU 起动中…', 'info');
+      else if (fm.startAPU()) { this.hud.notify('APU 起动中…', 'info'); }
+      else { this.hud.notify('无法起动 APU — 请先接通电池 (Shift+E)', 'warn', 2500); }
       var ab = global.document.getElementById('apu-btn');
       if (ab) ab.classList.toggle('on', fm.apuRunning);
     }
     if (input.consume('engineAllStart')) {
-      fm.startEngine('all'); this.hud.notify('起动全部发动机…', 'info');
+      if (fm.startEngine('all')) this.hud.notify('起动全部发动机…', 'info');
+      else this.hud.notify('无法起动发动机 — 无电源', 'warn', 2500);
     }
     if (input.consume('engine1Start')) {
-      fm.startEngine(0); this.hud.notify('发动机 1 起动中', 'info');
+      if (fm.startEngine(0)) this.hud.notify('发动机 1 起动中', 'info');
+      else this.hud.notify('无法起动发动机 — 无电源', 'warn', 2500);
     }
     if (input.consume('mute')) {
       if (this.audio.setMuted) {

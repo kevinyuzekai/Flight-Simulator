@@ -196,13 +196,14 @@
       nameEn: 'Cold & Dark',
       difficulty: '入门',
       coldDark: true,
-      description: '飞机完全断电 (COLD & DARK)。全部用鼠标点击三维驾驶舱开关: 接通电瓶与外部电源、ADIRS 对准、燃油泵、APU 与 APU 引气, 起动两台发动机, 然后滑行。',
-      hint: 'BAT 1+2 → EXT PWR → IR NAV → 燃油泵 → BEACON → APU MASTER/START → APU BLEED → ENG MODE IGN (波音 ENG START GRD) → ENG MASTER 2、1 (波音 FUEL CONTROL RUN)。按 ? 查看完整检查单。',
+      description: '飞机完全断电停靠在停机坪的机位上。接通电池、启动 APU、起动发动机, 推出后滑行至跑道。',
+      hint: '按 Shift+E 接通电池与电源 (座舱点亮), 再按 Shift+A 接通 APU; 等待 APU 可用后按 Ctrl+S 起动全部发动机; 松开停留刹车 (Shift+B) 后按 Shift+P 推出, 再滑行至跑道。',
       setup: function (ctx) {
         var fm = ctx.fm, env = ctx.env;
         var ap = FS.Airports.byIcao(ctx.airportIcao) || FS.Airports.list[0];
         var rwy = ctx.runway || (ap.runways && ap.runways[0]);
-        fm.placeOnRunway(ap.icao, rwy.ident, { startFrac: 0.05, parkingBrake: true });
+        // 停在停机坪的机位上, 电池断开 -> 座舱断电黑屏
+        fm.placeAtStand(ap.icao, { parkingBrake: true, flapPos: 0, batteryOn: false, runwayIdent: rwy ? rwy.ident : null });
         fm.setFuel(fm.ac.mass.maxFuel * 0.30);
         fm.setPayload(fm.ac.mass.maxPayload * 0.7);
         fm.setFlapDetent(0);
@@ -218,19 +219,20 @@
         }
         fm.throttle = fm.throttle.map(function () { return 0; });
         if (ctx.setLights) ctx.setLights({ beacon: false, nav: false, landing: false, taxi: false, strobe: false, logo: false, wing: false, cabin: false, rwyTurnoff: false });
-        if (fm.sys) fm.sys.setColdDark();          // beta 0.4.2: 电瓶 / 外部电源 / ADIRS / 燃油泵 / APU 全部关闭, 严格起动条件
+        if (fm.sys) fm.sys.setColdDark();
         if (env) env.setWeather(FS.Environment.presetWeather('few'));
         if (ctx.ap) ctx.ap.setPitchMode('OFF'), ctx.ap.ap.engaged = false;
-        return { title: '冷舱启动', subtitle: ap.nameZh + ' · ' + rwy.ident };
+        return { title: '冷舱启动', subtitle: ap.nameZh + ' · ' + (fm.standName || '停机坪') };
       },
       objectives: [
-        { text: '接通电瓶 BAT 1 + BAT 2 与外部电源 EXT PWR', check: function (s) { return !s.sys || (s.sys.bat1 && s.sys.bat2 && s.sys.ac); } },
+        { text: '接通电瓶 BAT 1 + BAT 2 与外部电源 EXT PWR', check: function (s) { return s.sys ? (s.sys.bat1 && s.sys.bat2 && s.sys.ac) : s.batteryOn; } },
         { text: 'ADIRS 置 NAV 并完成对准', check: function (s) { return !s.sys || s.sys.irAllNav; } },
         { text: '燃油泵 ON, 信标灯 BEACON ON', check: function (s) { return (!s.sys || [0, 1, 4, 5].every(function (i) { return s.sys.pumps[i]; })) && s.lights && s.lights.beacon; } },
         { text: 'APU MASTER + START, 等待 APU AVAIL', check: function (s) { return s.sys ? s.sys.apuAvail : s.apuRunning; } },
         { text: 'APU BLEED ON (起动引气)', check: function (s) { return !s.sys || s.sys.apuBleedOn; } },
         { text: '起动两台发动机至慢车', check: function (s) { return s.engines.every(function (e) { return e.state === 'running' && e.n1 > 15; }); } },
         { text: '松开停留刹车', check: function (s) { return !s.parkingBrake; } },
+        { text: '推出离开停机位 (Shift+P)', check: function (s) { return !!s.pushbackDone; } },
         { text: '滑行速度不超过 25 kt', check: function (s) { return true; }, continuous: true }
       ]
     },
@@ -571,6 +573,13 @@
     this.completed = [];
     this.failed = false;
     this._continuousTimers = {};
+
+    // 每个场景开始前: 电源默认接通 (「冷舱启动」会在 setup 中自行断开电池)
+    if (ctx && ctx.fm) {
+      ctx.fm.batteryOn = true;
+      ctx.fm.apuGenOnline = true;
+      ctx.fm.genOnline = [true, true];
+    }
 
     var meta = null;
     try {

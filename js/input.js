@@ -36,6 +36,7 @@
 
     // ---- 构型 ----
     gearToggle: ['KeyG'],
+    pushbackToggle: ['Shift+KeyP'],                     // 地面推出 (牵引车)
     flapsUp: ['KeyF'],
     flapsDown: ['Shift+KeyF', 'KeyV'],
     speedbrake: ['KeyZ'],
@@ -82,6 +83,7 @@
     screenshot: ['F2'],
 
     // ---- 系统 ----
+    batteryToggle: ['Shift+KeyE'],                      // 电池主开关 (电源)
     apuToggle: ['Shift+KeyA'],
     engine1Start: ['Ctrl+Digit1'],
     engineAllStart: ['Ctrl+KeyS']
@@ -350,6 +352,20 @@
   /** 摇杆按钮 -> 动作 (由 FS.Joystick 调用) */
   Input.prototype.triggerAction = function (action) { this._joyActions[action] = true; };
   Input.prototype.holdAction = function (action, on) { if (on) this._joyHeld[action] = true; else delete this._joyHeld[action]; };
+
+  /** 键盘油门预设 (慢车 / 爬升 / TOGA)
+      必须同时改写油门轴本身: 主循环每帧用 input.axes.throttle 驱动 fm.setThrottle,
+      否则预设值下一帧就被旧的轴值顶回去 (beta 0.4.2 修复"数字键油门无效")。
+      同时让摇杆 / 油门台交出油门控制权, 直到再次被推动 (与 PgUp/PgDn 一致)。 */
+  Input.prototype.setThrottlePreset = function (v) {
+    this.axes.throttle = U.clamp01(v);
+    this.axes.throttleL = this.axes.throttle;
+    this.axes.throttleR = this.axes.throttle;
+    var st = global.FS && global.FS.Joystick && global.FS.Joystick.state;
+    if (st) {
+      for (var k in st) if (st.hasOwnProperty(k)) { st[k].thrOwned = false; st[k].thr2Owned = false; }
+    }
+  };
 
   /** 帮助面板用: 某动作的按键显示文本 */
   Input.prototype.labelFor = function (action) {

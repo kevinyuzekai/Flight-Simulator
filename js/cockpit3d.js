@@ -24,6 +24,7 @@
 
   var TYPE_LAYOUT = {
     'A320neo': { maker: 'airbus', du: 0.165, k: 1.0 },
+    'A320ceo': { maker: 'airbus', du: 0.165, k: 1.0 },
     'A321neo': { maker: 'airbus', du: 0.165, k: 1.0 },
     'A330-300': { maker: 'airbus', du: 0.17, k: 1.06 },
     'A350-900': { maker: 'airbus', du: 0.21, k: 1.08 },
@@ -42,8 +43,33 @@
       var ac = (FS.AIRCRAFT_DB && FS.AIRCRAFT_DB[typeKey]) || {};
       L = { maker: /Boeing|Embraer/.test(ac.manufacturer || '') ? 'boeing' : 'airbus', du: 0.18, k: ac.class === 'widebody' ? 1.06 : 1.0 };
     }
-    return { maker: L.maker, du: L.du, k: L.k, typeKey: typeKey };
+    var fam = FAMILY[typeKey] || (L.maker === 'boeing' ? 'b737' : 'a320');
+    var F = FAM_STYLE[fam];
+    return { maker: L.maker, du: L.du, k: L.k, typeKey: typeKey, fam: fam, aspect: F.aspect, hud: F.hud, lowerCenter: F.lowerCenter };
   }
+
+  /* 按机型系列区分驾驶舱 (程序化): 配色 / 显示器形状 (A350/787/C919/737 MAX 宽屏) / 787 HUD / 无下中央屏 (737 MAX, 787, E190) */
+  var FAMILY = { 'A320neo': 'a320', 'A320ceo': 'a320', 'A321neo': 'a320', 'A330-300': 'a330', 'A350-900': 'a350', 'A350-1000': 'a350',
+    'C919': 'c919', 'B737-800': 'b737', 'B737-MAX8': 'b737max', 'B777-300ER': 'b777', 'B787-9': 'b787', 'E190': 'e190' };
+  var FAM_STYLE = {
+    a320: { aspect: 1.0, hud: false, lowerCenter: true, pal: {} },
+    a330: { aspect: 1.0, hud: false, lowerCenter: true, pal: { panel: 0x56677a, console: 0x526172 } },
+    a350: { aspect: 1.32, hud: false, lowerCenter: true, pal: { panel: 0x3d444d, glare: 0x1d2024, console: 0x3a4148, lining: 0x9aa1a8, seat: 0x23272d } },
+    c919: { aspect: 1.25, hud: false, lowerCenter: true, pal: { panel: 0x4a5560, console: 0x46515c, seat: 0x2c333b } },
+    b737: { aspect: 1.0, hud: false, lowerCenter: true, pal: { panel: 0x6d7a86, console: 0x66737f, lining: 0xb4b0a6, seat: 0x46382f } },
+    b737max: { aspect: 1.3, hud: false, lowerCenter: false, pal: { panel: 0x5f6b76, console: 0x5b6772 } },
+    b777: { aspect: 1.0, hud: false, lowerCenter: true, pal: {} },
+    b787: { aspect: 1.35, hud: true, lowerCenter: false, pal: { panel: 0x34383d, glare: 0x1b1c1e, console: 0x33373c, lining: 0x8f8a80, seat: 0x2a2523 } },
+    e190: { aspect: 1.0, hud: false, lowerCenter: false, pal: { panel: 0x4c5864, console: 0x48545f, seat: 0x2f3640 } }
+  };
+
+  /* 每系列驾驶舱布局规格 (单位 m, k=1, 原点 = 机长/副驾视点中点高度; x 右, y 上, -z 前)
+     参考: Airbus FCOM 驾驶舱总图 / Boeing FCOM 驾驶舱面板图, 以及 Wikimedia Commons 驾驶舱照片 (见 ASSETS_LICENSES.md 1.6)
+     ovh: 顶板 前缘(风挡上框后) → 折点 → 后缘 的 [y, z]; w = 顶板半宽 */
+  var SPEC = {
+    airbus: { ovh: { front: [0.262, -0.775], bend: [0.305, -0.29], aft: [0.35, 0.16], w: 0.41 }, efisWX: false },
+    boeing: { ovh: { front: [0.262, -0.775], bend: [0.30, -0.33], aft: [0.35, 0.16], w: 0.42 }, efisWX: true }
+  };
 
   var PAL = {
     airbus: { panel: 0x5b6979, lining: 0xaeb4bb, glare: 0x2b2f34, frame: 0x3c4249, floor: 0x34373c, console: 0x56636f,
@@ -65,7 +91,7 @@
     this.THREE = THREE;
     this.typeKey = typeKey;
     this.L = layoutFor(typeKey);
-    this.pal = PAL[this.L.maker];
+    this.pal = Object.assign({}, PAL[this.L.maker], FAM_STYLE[this.L.fam].pal);
     this.opts = opts || {};
     this.sim = this.opts.sim || null;
     this.group = new THREE.Group();
@@ -179,6 +205,16 @@
       red: this._mat(0xb01818), green: this._mat(0x23c447, { flat: true, emissive: true, toneMapped: false })
     };
     this.eyeX = -0.53 * k;
+    // 哑光面板材质: 程序生成的细颗粒 + 轻微磨损/划痕 (乘在底色上)
+    var nc = mkCanvas(256, 256), ng = nc.getContext('2d'), rs = 11;
+    ng.fillStyle = '#f4f4f4'; ng.fillRect(0, 0, 256, 256);
+    for (var ni = 0; ni < 9000; ni++) { rs = (rs * 16807) % 2147483647; var nv = 222 + (rs % 34); ng.fillStyle = 'rgb(' + nv + ',' + nv + ',' + nv + ')'; ng.fillRect(rs % 256, (rs >> 8) % 256, 1 + (rs % 2), 1); }
+    ng.strokeStyle = 'rgba(255,255,255,0.35)'; ng.lineWidth = 1;
+    for (ni = 0; ni < 26; ni++) { rs = (rs * 16807) % 2147483647; var sx0 = rs % 256, sy0 = (rs >> 9) % 256; ng.beginPath(); ng.moveTo(sx0, sy0); ng.lineTo(sx0 + (rs % 40) - 20, sy0 + ((rs >> 4) % 12) - 6); ng.stroke(); }
+    var edge = ng.createLinearGradient(0, 0, 0, 256); edge.addColorStop(0, 'rgba(0,0,0,0.10)'); edge.addColorStop(0.06, 'rgba(0,0,0,0)'); edge.addColorStop(0.94, 'rgba(0,0,0,0)'); edge.addColorStop(1, 'rgba(0,0,0,0.12)');
+    ng.fillStyle = edge; ng.fillRect(0, 0, 256, 256);
+    var ntex = this._tex(nc);
+    ['lining', 'glare', 'frame', 'console', 'seat', 'panel', 'floor', 'door'].forEach(function (key) { M[key].map = ntex; M[key].needsUpdate = true; });
 
     /* ---- 风挡与侧窗的关键点 (左侧; 右侧镜像) ---- */
     var WS_BI = V(-0.012, -0.25, -1.025), WS_BO = V(-0.78, -0.25, -0.84),
@@ -226,6 +262,8 @@
       var cx = (sx > 0 ? -1 : 1) * 0.89 * k;
       self._box(0.18 * k, (boeing ? 0.48 : 0.55) * k, 0.92 * k, M.console, cx, YF + (boeing ? 0.24 : 0.275) * k, -0.16 * k);
     });
+    // 遮光板软垫 (圆角唇边)
+    [-1, 1].forEach(function (sd) { self._cyl(0.022 * k, 0.022 * k, 0.36 * k, 16, M.glare, sd * 0.80 * k, -0.262 * k, -0.648 * k, 0, 0, Math.PI / 2); });   // 只在 FCU/EFIS 外侧, 不遮挡面板
     // 遮光板唇边与底面
     this._poly([V(-0.98, -0.335, -0.64), V(0.98, -0.335, -0.64), V(0.98, -0.25, -0.64), V(-0.98, -0.25, -0.64)], M.glare);
     this._poly([V(-0.98, -0.335, -0.70), V(0.98, -0.335, -0.70), V(0.98, -0.335, -0.64), V(-0.98, -0.335, -0.64)], M.glare);
@@ -275,26 +313,38 @@
   };
 
   /* ---------------- 遮光板: FCU / MCP + EFIS + 主警告灯 ---------------- */
+  /* Airbus 实拍面板贴图 (Wikimedia Commons, 见 ASSETS_LICENSES.md 1.6) */
+  P._abImg = function (key) {
+    var T = FS.CKPT_TEX_AIRBUS; if (!T || !T[key] || this.L.maker === 'boeing' || this.L.fam === 'e190') return null;
+    this._abImgs = this._abImgs || {};
+    var im = this._abImgs[key], self = this;
+    if (!im) { im = this._abImgs[key] = new Image(); im.onload = function () { if (self._sig) { self._sig.fcu = self._sig.efis = null; } if (self._ovhRedraw) self._ovhRedraw(); }; im.src = T[key].src; }
+    return im.complete && im.naturalWidth ? im : null;
+  };
   P._buildGlareshieldUnits = function () {
     var L = this.L, k = L.k, boeing = L.maker === 'boeing', M = this.M;
-    var hw = (boeing ? 0.40 : 0.32) * k, h = 0.074, y = -0.293 * k, z = -0.626 * k, tilt = -0.16;
+    var abTex = !boeing && L.fam !== 'e190' && FS.CKPT_TEX_AIRBUS;
+    this._abFCU = !!abTex;
+    var hw = (boeing ? 0.40 : (abTex ? 0.21 : 0.32)) * k, h = abTex ? hw * 2 * 351 / 1024 : 0.074, y = -0.293 * k, z = -0.626 * k, tilt = -0.16;
     this._box(hw * 2 + 0.01, h + 0.012, 0.05 * k, M.frame, 0, y, z - 0.026 * k, tilt);
-    this.fcuCanvas = mkCanvas(1024, 128);
+    this.fcuCanvas = mkCanvas(1024, abTex ? 351 : 128);
     this.fcuTex = this._tex(this.fcuCanvas);
     var fm = this._mat(0xffffff, { flat: true, map: this.fcuTex });
     this.fcuMesh = this._plane(hw * 2, h, fm, 0, y, z, tilt);
     this.fcuMesh.userData.canvas = this.fcuCanvas; this.fcuMesh.userData.rects = [];
     this.clickables.push(this.fcuMesh);
     // EFIS 控制板 (两侧共用一张贴图)
-    this.efisCanvas = mkCanvas(512, 144);
+    this.efisCanvas = mkCanvas(512, abTex ? 273 : 144);
     this.efisTex = this._tex(this.efisCanvas);
     var em = this._mat(0xffffff, { flat: true, map: this.efisTex });
-    var ew = 0.25 * k, ex = hw + 0.035 * k + ew / 2;
+    var ew = (abTex ? h * 512 / 273 : 0.25 * k), ex = hw + (abTex ? 0.01 : 0.035) * k + ew / 2;
     this.efisMeshes = [];
+    if (abTex) { this.efisCanvasR = mkCanvas(512, 287); this.efisTexR = this._tex(this.efisCanvasR); }
     for (var s = -1; s <= 1; s += 2) {
-      this._box(ew + 0.01, h + 0.012, 0.04 * k, M.frame, s * ex, y, z - 0.022 * k, tilt);
-      var e = this._plane(ew, h, em, s * ex, y, z, tilt);
-      e.userData.canvas = this.efisCanvas; e.userData.rects = [];
+      var R = abTex && s > 0, ewS = R ? h * 512 / 287 : ew, exS = hw + (abTex ? 0.01 : 0.035) * k + ewS / 2;
+      this._box(ewS + 0.01, h + 0.012, 0.04 * k, M.frame, s * exS, y, z - 0.022 * k, tilt);
+      var e = this._plane(ewS, h, R ? this._mat(0xffffff, { flat: true, map: this.efisTexR }) : em, s * exS, y, z, tilt);
+      e.userData.canvas = R ? this.efisCanvasR : this.efisCanvas; e.userData.rects = []; e.userData.side = s;
       this.efisMeshes.push(e); this.clickables.push(e);
     }
     // 主警告 / 主警戒灯 (机长与副驾两侧)
@@ -340,24 +390,50 @@
     Object.keys(this.dispTex).forEach(function (key) {
       dmat[key] = self._mat(0xffffff, { flat: true, map: self.dispTex[key], toneMapped: false, emissive: true });
     });
-    function screen(key, x, y) {
-      self._plane(du + 0.024, du + 0.024, M.bezel, x, y, 0.004, 0, 0, 0, pg);
-      return self._plane(du, du, dmat[key], x, y, 0.007, 0, 0, 0, pg);
+    var dw = du * (L.aspect || 1);
+    function screen(key, x, y, w) {
+      w = w || dw;
+      // 斜边显示器框: 外框 (凸起) + 内倒角
+      self._box(w + 0.034, du + 0.034, 0.012, M.frame, x, y, 0.002, 0, 0, 0, pg);
+      self._box(w + 0.020, du + 0.020, 0.016, M.bezel, x, y, 0.002, 0, 0, 0, pg);
+      return self._plane(w, du, dmat[key], x, y, 0.0105, 0, 0, 0, pg);
     }
     var ex = this.eyeX, dy = -(0.014 + du / 2);
+    var cxW = L.aspect > 1 ? Math.max(cw, dw / 2 + 0.03) : cw;
+    var pfdX = ex - dw / 2 - 0.014, ndX = pfdX + dw + 0.028;
+    if (ndX + dw / 2 > -(cxW + 0.02)) { ndX = -(cxW + 0.02) - dw / 2; pfdX = ndX - dw - 0.028; }   // 机长侧在 -x
     this.screens = {
-      pfdL: screen('pfd', ex - du / 2 - 0.014, dy),
-      ndL: screen('nd', ex + du / 2 + 0.014, dy),
-      ndR: screen('nd', -(ex + du / 2 + 0.014), dy),
-      pfdR: screen('pfd', -(ex - du / 2 - 0.014), dy),
-      upper: screen('upper', 0, dy),
-      lower: screen('lower', 0, dy - du - 0.03)
+      pfdL: screen('pfd', pfdX, dy),
+      ndL: screen('nd', ndX, dy),
+      ndR: screen('nd', -ndX, dy),
+      pfdR: screen('pfd', -pfdX, dy),
+      // 787: 主仪表板 4 块 15" 横屏 + 下中央 1 块 (共 5 块) — 中央上方不设显示器
+      upper: L.fam === 'b787' ? screen('upper', 0, dy - du - 0.03, du * 1.05) : screen('upper', 0, dy, Math.min(dw, 2 * (-ndX - dw / 2) - 0.03)),
+      lower: L.lowerCenter ? screen('lower', 0, dy - du - 0.03, du) : null
     };
+    if (L.hud) {
+      var hm = this._mat(0x9fe6c0, { flat: true, transparent: true, opacity: 0.16, toneMapped: false });
+      hm.depthWrite = false;
+      var hg = new THREE.Group(); hg.position.set(this.eyeX, 0.0, -0.42 * k); this.group.add(hg);
+      this._plane(0.20, 0.15, hm, 0, 0, 0, 0, 0, 0, hg);
+      this._box(0.012, 0.012, 0.22, M.frame, 0, 0.085, 0.10, 0, 0, 0, hg);
+    }
     // 备用仪表 (小圆表, 静态外观)
     var stby = mkCanvas(128, 128); this._drawStandby(stby);
     var sm = this._mat(0xffffff, { flat: true, map: this._tex(stby), toneMapped: false, emissive: true });
     this._plane(0.075, 0.075, M.bezel, -cw - 0.055, -hS + 0.06, 0.004, 0, 0, 0, pg);
     this._plane(0.065, 0.065, sm, -cw - 0.055, -hS + 0.06, 0.007, 0, 0, 0, pg);
+    // Airbus: TERR ON ND 按钮在每侧 PFD 外侧的侧面板上 (Boeing 的 TERR/WXR 在 EFIS 控制板上)
+    if (!boeing && L.fam !== 'e190') {
+      for (var ts = -1; ts <= 1; ts += 2) {
+        var tx = ts * (Math.abs(pfdX) + dw / 2 + 0.045), tlm = this._lampMat();
+        this._plane(0.034, 0.03, M.bezel, tx, dy - du * 0.3, 0.005, 0, 0, 0, pg);
+        this._plane(0.026, 0.008, tlm, tx, dy - du * 0.3 + 0.007, 0.008, 0, 0, 0, pg);
+        this._ctl(this._hitbox(0.04, 0.036, 0.02, tx, dy - du * 0.3, 0.01, pg), { id: 'terr-on-nd-' + (ts < 0 ? 'L' : 'R'), tip: 'TERR ON ND',
+          click: function () { var e = global.document && global.document.getElementById('nd-terrain'); if (e) e.click(); } });
+        this._regLamp(tlm, function () { return lit('nd-terrain') ? 0x3dff6a : 0; });
+      }
+    }
 
     // 起落架手柄 + 三个起落架指示灯 (右侧面板靠中央处)
     var gx = cw + 0.06, gy = -hS + 0.075;
@@ -384,69 +460,176 @@
 
   /* ---------------- 中央操纵台 ---------------- */
   P._buildPedestal = function () {
-    var THREE = this.THREE, L = this.L, k = L.k, M = this.M, boeing = L.maker === 'boeing';
+    /* 按系列布置中央操纵台 (参考公开照片 / FCOM 式布局描述, 示意性还原, 无厂商标志):
+       空客: 前部 MCDU (A350: KCCU 键盘 + 轨迹球), 推力手柄 (TOGA / FLX-MCT / CL / IDLE / REV 卡位, A/THR 时手柄不动),
+             左侧减速板 / 右侧襟翼 (0-1-2-3-FULL), 手柄后方 ENG MASTER + ENG MODE, 后部 RMP 无线电, 方向舵配平, 停留刹车;
+       波音: 推力手柄 (TO/GA 按钮 + A/T 断开按钮 + 反推手柄), 手柄下方燃油控制电门 (737 起动手柄), 左减速板 / 右襟翼 (带闸口),
+             737 两侧安定面配平手轮, 777 / 787 后部光标控制器 (CCD), 787 多功能键盘;
+       E190: 推力手柄 (TO/GA), 左减速板 / 右襟翼, 前部 MCDU。 */
+    var THREE = this.THREE, L = this.L, k = L.k, M = this.M, boeing = L.maker === 'boeing', fam = L.fam, self = this;
     var pd = this._panelDims, tilt = 0.165;
     var py0 = -0.34 * k - pd.hC * Math.cos(tilt), pz0 = -0.70 * k + pd.hC * Math.sin(tilt);
-    var YF = -1.15 * k, top = py0 - 0.004, zEnd = 0.36 * k, pw = Math.min(pd.cw * 0.95, 0.24 * k);
+    var wide = fam === 'a350' || fam === 'b787' || fam === 'b777';
+    var PL = (FS.PEDESTAL_LAYOUTS || {})[fam] || null; this._pedLayout = PL;
+    var YF = -1.15 * k, top = py0 - 0.004, zEnd = 0.36 * k, pw = Math.min(pd.cw * 0.95, 0.24 * k) * (wide ? 1.12 : 1);
+    if (PL && PL.pw) pw = PL.pw * k;   // 数据布局: 按真实宽度 (两块 146 mm 标准面板 + 推力扇区)
     this._box(pw * 2, top - YF, zEnd - pz0, M.console, 0, (top + YF) / 2, (pz0 + zEnd) / 2);
     this._pedTop = top;
-    // MCDU (两台, 斜放在操纵台前部)
-    var mc = mkCanvas(256, 320); this._drawMCDU(mc);
-    var mm = this._mat(0xffffff, { flat: true, map: this._tex(mc), toneMapped: false, emissive: true });
-    for (var s = -1; s <= 1; s += 2) {
-      var g = new THREE.Group(); g.position.set(s * pw * 0.5, top + 0.035, pz0 + 0.11); g.rotation.x = -1.05; this.group.add(g);
-      this._box(pw * 0.9, 0.17, 0.05, M.frame, 0, 0, -0.026, 0, 0, 0, g);
-      this._plane(pw * 0.86, 0.16, mm, 0, 0, 0.001, 0, 0, 0, g);
+    function plate(w, h, x, z, lines, opts) {          // 操纵台上平放的带字铭牌
+      opts = opts || {};
+      var c = mkCanvas(Math.ceil(w * 1400), Math.ceil(h * 1400)), g = c.getContext('2d');
+      g.fillStyle = opts.bg || hex(self.pal.panel); g.fillRect(0, 0, c.width, c.height);
+      g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 3; g.strokeRect(2, 2, c.width - 4, c.height - 4);
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      lines.forEach(function (l) { g.fillStyle = l[4] || '#eef1f3'; g.font = 'bold ' + Math.round(l[3] * 1400) + 'px sans-serif'; g.fillText(l[0], (l[1] + w / 2) * 1400, (h / 2 - l[2]) * 1400); });
+      if (opts.draw) opts.draw(g, c.width, c.height);
+      return self._plane(w, h, self._mat(0xffffff, { flat: true, map: self._tex(c) }), x, (opts.y || top) + 0.002, z, -Math.PI / 2);
     }
-    // 推力手柄座
-    var qz = pz0 + 0.33, qLen = 0.22;
-    this._box(0.20, 0.05, qLen, M.frame, 0, top + 0.02, qz);
+    // ---- 前部: MCDU / KCCU / CDU / 787 键盘 ----
+    var fz = pz0 + 0.11;
+    if (fam === 'a350') {
+      for (var s = -1; s <= 1; s += 2) {
+        var kz = plate(pw * 0.86, 0.15, s * pw * 0.5, fz, [['KCCU', 0, 0.06, 0.010]], { bg: '#2a2f35', draw: function (g, W, H) {
+          g.fillStyle = '#5b636b'; for (var r = 0; r < 4; r++) for (var q = 0; q < 10; q++) g.fillRect(W * (0.06 + q * 0.07), H * (0.25 + r * 0.13), W * 0.055, H * 0.1);
+          g.fillStyle = '#111'; g.beginPath(); g.arc(W * 0.86, H * 0.55, H * 0.16, 0, Math.PI * 2); g.fill(); } });
+        void kz;
+        this._cyl(0.016, 0.016, 0.01, 14, M.stick, s * pw * 0.5 + pw * 0.86 * 0.36, top + 0.006, fz + 0.005);
+      }
+    } else if (fam === 'b787') {
+      for (s = -1; s <= 1; s += 2) plate(pw * 0.86, 0.13, s * pw * 0.5, fz, [['MFK', 0, 0.05, 0.010]], { bg: '#26292d', draw: function (g, W, H) {
+        g.fillStyle = '#545a60'; for (var r = 0; r < 4; r++) for (var q = 0; q < 9; q++) g.fillRect(W * (0.07 + q * 0.095), H * (0.25 + r * 0.17), W * 0.075, H * 0.12); } });
+    } else {
+      var mc = mkCanvas(256, 320); this._drawMCDU(mc);
+      var mm = this._mat(0xffffff, { flat: true, map: this._tex(mc), toneMapped: false, emissive: true });
+      for (s = -1; s <= 1; s += 2) {
+        var g = new THREE.Group(); g.position.set(s * pw * 0.5, top + 0.035, fz); g.rotation.x = -1.05; this.group.add(g);
+        if (PL && PL.mcdu) g.position.x = s * PL.mcdu.x * k;
+        var mw = PL && PL.mcdu ? PL.mcdu.w * k : pw * 0.9;
+        this._box(mw, 0.17, 0.05, M.frame, 0, 0, -0.026, 0, 0, 0, g);
+        this._plane(mw * 0.955, 0.16, mm, 0, 0, 0.001, 0, 0, 0, g);
+      }
+    }
+    // ---- 推力手柄座 ----
+    var qz = pz0 + 0.34, qLen = 0.22, qw = boeing ? 0.17 : 0.20;
+    this._box(qw, 0.05, qLen, M.frame, 0, top + 0.02, qz);
+    // 侧面卡位刻度 (左侧面)
+    var det = boeing ? [['TO/GA', 0.08], ['CLB', 0.03], ['IDLE', -0.06], ['REV', -0.095]] :
+      [['TOGA', 0.09], ['FLX/MCT', 0.055], ['CL', 0.02], ['IDLE', -0.06], ['REV', -0.095]];
+    plate(0.05, qLen, -qw / 2 - 0.026, qz, det.map(function (d) { return [d[0], 0, d[1], 0.0085, d[0] === 'REV' ? '#ff9d2e' : '#eef1f3']; }), { y: top + 0.045 });
+    if (!boeing && fam !== 'e190') plate(0.05, qLen, qw / 2 + 0.026, qz, det.map(function (d) { return [d[0], 0, d[1], 0.0085, d[0] === 'REV' ? '#ff9d2e' : '#eef1f3']; }), { y: top + 0.045 });
     this.thrLevers = [];
-    var n = 2;
-    for (var i = 0; i < n; i++) {
-      var lv = new THREE.Group(); lv.position.set((i === 0 ? -1 : 1) * 0.045, top - 0.02, qz); this.group.add(lv);
+    for (var i = 0; i < 2; i++) {
+      var sd = i === 0 ? -1 : 1;
+      var lv = new THREE.Group(); lv.position.set(sd * (boeing ? 0.035 : 0.045), top - 0.02, qz); this.group.add(lv);
       this._box(0.016, 0.20, 0.02, M.lever, 0, 0.10, 0, 0, 0, 0, lv);
-      if (boeing) {
-        this._cyl(0.016, 0.016, 0.07, 12, M.knob, (i === 0 ? -1 : 1) * 0.02, 0.205, 0, 0, 0, Math.PI / 2, lv);
-        this._box(0.012, 0.012, 0.012, M.stick, (i === 0 ? -1 : 1) * 0.02, 0.2, 0.017, 0, 0, 0, lv);
+      if (boeing || fam === 'e190') {
+        this._cyl(0.016, 0.016, 0.07, 12, M.knob, sd * 0.02, 0.205, 0, 0, 0, Math.PI / 2, lv);
+        this._box(0.012, 0.008, 0.01, M.stick, sd * 0.02, 0.19, -0.018, 0, 0, 0, lv);          // TO/GA 按钮 (手柄前下方)
+        this._box(0.008, 0.012, 0.012, M.red, sd * 0.056, 0.205, 0, 0, 0, 0, lv);             // A/T 断开按钮 (外侧)
+        this._box(0.01, 0.06, 0.012, M.stick, 0, 0.16, -0.022, 0.5, 0, 0, lv);                  // 反推手柄 (背驮式)
       } else {
-        this._box(0.05, 0.035, 0.035, M.knob, (i === 0 ? -1 : 1) * 0.012, 0.205, 0, 0, 0, 0, lv);
-        this._box(0.052, 0.008, 0.037, M.stick, (i === 0 ? -1 : 1) * 0.012, 0.187, 0, 0, 0, 0, lv);
+        // Airbus: 两根手柄平行于机身轴线, 手柄头为居中的黑色横握把
+        this._box(0.044, 0.030, 0.034, M.stick, 0, 0.205, 0, 0, 0, 0, lv);
+        this._box(0.046, 0.006, 0.036, M.frame, 0, 0.188, 0, 0, 0, 0, lv);
+        this._box(0.008, 0.010, 0.020, M.red, sd * 0.024, 0.205, 0, 0, 0, 0, lv);                  // A/THR 断开按钮 (外侧)
       }
       this.thrLevers.push(lv);
-      // beta 0.4.2: 推力手柄可拖拽 (上下拖 = 推 / 收油门, 滚轮微调; 两侧手柄联动)
       this._ctl(this._hitbox(0.05, 0.075, 0.05, 0, 0.18, 0, lv), this._throttleCtl(i));
     }
-    // 襟翼手柄 (右) / 减速板手柄 (左)
+    // 737: 两侧安定面配平手轮
+    this.trimWheels = [];
+    var abTrim = !boeing && fam !== 'e190';
+    if (fam === 'b737' || fam === 'b737max' || abTrim) {
+      // 737: 安定面配平手轮; 空客: 俯仰配平手轮 (推力扇区两侧, 黑色带白条)
+      for (s = -1; s <= 1; s += 2) {
+        if (abTrim) {
+          var aw = new THREE.Group(); aw.position.set(s * (PL && PL.trimX ? PL.trimX * k : qw / 2 + 0.065), top + 0.02, qz); this.group.add(aw);
+          this._cyl(0.11, 0.11, 0.018, 28, M.stick, 0, 0, 0, 0, 0, Math.PI / 2, aw);
+          this._box(0.020, 0.012, 0.05, M.knob, 0, 0.105, 0, 0, 0, 0, aw);
+          this.trimWheels.push(aw); continue;
+        }
+        var tw = new THREE.Group(); tw.position.set(s * (qw / 2 + 0.03), top + 0.03, qz + 0.02); this.group.add(tw);
+        this._cyl(0.085, 0.085, 0.022, 24, M.stick, 0, 0, 0, 0, 0, Math.PI / 2, tw);
+        this._box(0.024, 0.01, 0.17, M.knob, 0, 0.0, 0, 0, 0, 0, tw);   // 白色条纹
+        this.trimWheels.push(tw);
+      }
+    }
+    // ---- 减速板 (左) / 襟翼 (右, 带闸口铭牌) ----
+    var lx = qw / 2 + ((fam === 'b737' || fam === 'b737max') ? 0.08 : 0.04);
     var mkLever = function (x, color) {
       var g = new THREE.Group(); g.position.set(x, top - 0.015, qz + 0.02); this.group.add(g);
       this._box(0.012, 0.14, 0.014, M.lever, 0, 0.07, 0, 0, 0, 0, g);
-      this._box(0.045, 0.022, 0.03, color, 0, 0.145, 0, 0, 0, 0, g);
+      this._box(boeing ? 0.05 : 0.045, 0.022, boeing ? 0.04 : 0.03, color, 0, 0.145, 0, 0, 0, 0, g);
       return g;
     }.bind(this);
-    this.flapLever = mkLever(0.14, M.knob);
-    this.sbLever = mkLever(-0.14, M.stick);
-    // 襟翼手柄: 左键 = 放下一档, 右键 / Shift+左键 = 收上一档, 滚轮向上 = 收 / 向下 = 放, 上下拖动连续换档
-    // 减速板手柄: 左键 = 放出 / 收回, 右键 = 地面扰流板预位 (ARM), 滚轮 = 0 / 半 / 全, 拖动连续
+    if (!boeing && fam !== 'e190') {
+      // Airbus (A320/A330/A350 实拍参考): 减速板在操纵台左缘、襟翼在右缘, 均位于推力手柄扇区后半段旁,
+      // 从操纵台顶面的导槽伸出 (短杆); 减速板 = 灰色扁 T 形手柄, 襟翼 = 方形大握把
+      var ex2 = PL && PL.levX ? PL.levX * k : qw / 2 + 0.065, lz = qz + qLen / 2 + (PL && PL.levZ !== undefined ? PL.levZ * k : 0.07);   // 参考照片 (A32S Pedestal / Thrust levers of an Airbus A320): 在配平手轮正后方, ENG MASTER 面板左右两侧外缘, 与 ENG MASTER 同一前后位置
+      lx = ex2;
+      mkLever = function (x, kind) {
+        var g = new THREE.Group(); g.position.set(x, top, lz); this.group.add(g);
+        this._box(0.010, 0.075, 0.012, M.lever, 0, 0.0375, 0, 0, 0, 0, g);
+        if (kind === 'flap') { this._box(0.040, 0.030, 0.034, M.knob, 0, 0.082, 0, 0, 0, 0, g); this._box(0.042, 0.006, 0.036, M.frame, 0, 0.066, 0, 0, 0, 0, g); }
+        else { this._box(0.046, 0.012, 0.022, M.lever, 0, 0.080, 0, 0, 0, 0, g); this._cyl(0.006, 0.006, 0.046, 10, M.lever, 0, 0.086, -0.008, 0, 0, Math.PI / 2, g); }
+        return g;
+      }.bind(this);
+      // 顶面导槽
+      this._box(0.014, 0.003, 0.10, M.black, ex2, top + 0.0015, lz + 0.02);
+      this._box(0.014, 0.003, 0.10, M.black, -ex2, top + 0.0015, lz);
+      this.flapLever = mkLever(ex2, 'flap'); this.flapLever.position.z += 0.015;   // 襟翼略靠后
+      this.sbLever = mkLever(-ex2, 'sb');
+    } else {
+      this.flapLever = mkLever(lx, M.knob);
+      this.sbLever = mkLever(-lx, M.stick);
+    }
+    var flaps = safe(function () { return FS.AIRCRAFT_DB[L.typeKey].flaps.map(function (f) { return f.name; }); }, null) || ['0', '1', '2', '3', 'FULL'];
+    var abPl = !boeing && fam !== 'e190', plX = abPl ? lx - 0.03 : lx + 0.045, plZ = abPl ? lz + 0.02 : qz, plL = abPl ? 0.11 : qLen, plY = abPl ? top + 0.003 : top + 0.045;
+    plate(0.035, plL, plX, plZ, [['FLAPS', 0, qLen / 2 - 0.012, 0.008]].concat(flaps.map(function (n, j) {
+      return [n, 0, plL / 2 - 0.035 - j * (plL - 0.05) / Math.max(1, flaps.length - 1), 0.0085, boeing ? '#ffffff' : '#ff9d2e']; })), { y: plY });
+    plate(abPl ? 0.035 : 0.045, abPl ? 0.11 : qLen * 0.7, abPl ? -plX : -lx - 0.045, abPl ? lz : qz - qLen * 0.15, [[boeing ? 'SPD BRK' : 'SPEED', 0, 0.065, 0.008], [boeing ? 'DOWN' : 'RET', 0, 0.045, 0.008],
+      ['ARM', 0, 0.025, 0.008, '#9dff8f'], ['FLT', 0, -0.01, 0.008], [boeing ? 'UP' : 'FULL', 0, -0.05, 0.008]], { y: plY });
     var selfPed = this;
-    this._ctl(this._hitbox(0.06, 0.18, 0.05, 0, 0.08, 0.02, this.flapLever), {
+    this._ctl(this._hitbox(abPl ? 0.034 : 0.06, abPl ? 0.03 : 0.18, abPl ? 0.04 : 0.05, 0, abPl ? 0.074 : 0.08, abPl ? 0 : 0.02, this.flapLever), {
       id: 'flap', tip: '襟翼手柄 (左键放 / 右键收 / 滚轮 / 拖动)',
       click: function (dir) { selfPed._clickFlap(dir); },
       wheel: function (dir) { selfPed._clickFlap(-dir); },
       drag: this._stepDrag(function (dir) { selfPed._clickFlap(dir); }, 0.035)
     });
-    this._ctl(this._hitbox(0.06, 0.18, 0.05, 0, 0.08, 0.02, this.sbLever), {
+    this._ctl(this._hitbox(abPl ? 0.034 : 0.06, abPl ? 0.03 : 0.18, abPl ? 0.04 : 0.05, 0, abPl ? 0.074 : 0.08, abPl ? 0 : 0.02, this.sbLever), {
       id: 'speedbrake', tip: '减速板手柄 (左键放出 / 收回, 右键地面扰流板预位, 滚轮 / 拖动)',
       click: function (dir) { if (dir < 0) selfPed._clickSpoilerArm(); else selfPed._clickSpoiler(); },
       wheel: function (dir) { selfPed._stepSpoiler(-dir); },
       drag: this._stepDrag(function (dir) { selfPed._stepSpoiler(dir); }, 0.04)
     });
     this._pedGeo = { top: top, qz: qz, qLen: qLen, zEnd: zEnd, pw: pw };
-    // 操纵台后部: 无线电面板 (贴图; 前面留出发动机主电门 / 停留刹车面板的位置)
-    var rz0 = qz + qLen / 2 + 0.22;
-    var rc = mkCanvas(256, 256); this._drawRadio(rc);
-    var rm = this._mat(0xffffff, { flat: true, map: this._tex(rc) });
-    this._plane(pw * 1.9, zEnd - rz0, rm, 0, top + 0.002, (rz0 + zEnd) / 2, -Math.PI / 2);
+    // ---- 后部: 无线电 (RMP / VHF) + 系列特有部件 ----
+    var rz0 = qz + qLen / 2 + 0.17, rz1 = zEnd - (boeing ? 0.0 : 0.11);
+    if (PL) { /* 数据布局: 后部面板在 _buildSwitchPanels 中按数据生成 */ } else if (fam === 'b777' || fam === 'b787') {       // 光标控制器 (CCD) 左右各一, 中间无线电
+      for (s = -1; s <= 1; s += 2) plate(pw * 0.55, 0.13, s * pw * 0.66, rz0 + 0.08, [['CCD', 0, 0.05, 0.009]], { bg: '#25282c', draw: function (g, W, H) {
+        g.fillStyle = '#3e444a'; g.fillRect(W * 0.18, H * 0.28, W * 0.64, H * 0.5); g.fillStyle = '#5a6168'; g.fillRect(W * 0.25, H * 0.82, W * 0.5, H * 0.1); } });
+      var rc = mkCanvas(256, 256); this._drawRadio(rc);
+      this._plane(pw * 0.7, rz1 - rz0, this._mat(0xffffff, { flat: true, map: this._tex(rc) }), 0, top + 0.002, (rz0 + rz1) / 2, -Math.PI / 2);
+    } else {
+      rc = mkCanvas(256, 256); this._drawRadio(rc);
+      this._plane(pw * 1.9, rz1 - rz0, this._mat(0xffffff, { flat: true, map: this._tex(rc) }), 0, top + 0.002, (rz0 + rz1) / 2, -Math.PI / 2);
+    }
+    if (!boeing && !PL) {
+      // 方向舵配平面板 (旋钮 + 显示) 最后部; 停留刹车面板在 _buildSwitchPanels 中放在其左侧
+      plate(pw * 0.9, 0.09, pw * 0.5, zEnd - 0.055, [['RUD TRIM', 0, 0.03, 0.009], ['L 0.0', 0, 0.0, 0.012, '#ff9d2e'], ['NOSE L    RESET    NOSE R', 0, -0.03, 0.006]]);
+      this._cyl(0.014, 0.014, 0.012, 14, M.stick, pw * 0.5 + 0.045, top + 0.008, zEnd - 0.055);
+    }
+    this._pedFam = { rudTrimZ: zEnd - 0.055 };
+    // Airbus: 气象雷达 (WXR) 控制板在中央操纵台后部 -> WXR 开关放在这里 (不在 EFIS 上)
+    if (!boeing && L.fam !== 'e190' && !PL) {
+      var wl = this._lampMat(), self2 = this, wz = zEnd - 0.17;
+      this._box(pw * 0.8, 0.006, 0.07, M.panel, 0, top + 0.003, wz);
+      this._plane(0.03, 0.02, wl, -pw * 0.25, top + 0.008, wz, -Math.PI / 2);
+      this._ctl(this._hitbox(0.05, 0.03, 0.05, -pw * 0.25, top + 0.01, wz), { id: 'wxr', tip: '气象雷达 WX (中央操纵台后部雷达控制板)',
+        click: function () { var e = global.document && global.document.getElementById('nd-weather'); if (e) e.click(); } });
+      this._regLamp(wl, function () { return lit('nd-weather') ? 0x3dff6a : 0; });
+      void self2;
+    }
   };
 
   /* ---------------- 侧杆 / 驾驶盘 ---------------- */
@@ -467,6 +650,10 @@
         // 扶手
         this._box(0.10, 0.04, 0.28, M.console, s * 0.80 * k, top + 0.02, -0.05 * k);
         this.sticks.push({ side: s, g: st });
+        // 收起的小桌板 (Airbus 侧杆前方, 主仪表板下)
+        var ex = s < 0 ? this.eyeX : -this.eyeX;
+        this._box(0.34 * k, 0.012, 0.10 * k, M.console, ex, -0.615 * k, -0.62 * k);   // 收起状态, 贴在主仪表板下方
+        this._box(0.12 * k, 0.006, 0.008, M.frame, ex, -0.612 * k, -0.568 * k);
       } else {
         var col = new THREE.Group(); col.position.set(0, -1.15 * k, -0.50 * k);
         col.position.x = s < 0 ? this.eyeX : -this.eyeX;
@@ -494,13 +681,41 @@
 
   /* ---------------- 头顶板 (示意) ---------------- */
   P._buildOverhead = function () {
-    var k = this.L.k;
-    var oc = mkCanvas(1024, 1024); this._drawOverhead(oc);
-    var om = this._mat(0xffffff, { map: this._tex(oc) });
-    this._poly([[-0.42 * k, 0.245 * k, -0.70 * k], [0.42 * k, 0.245 * k, -0.70 * k], [0.42 * k, 0.34 * k, 0.15 * k], [-0.42 * k, 0.34 * k, 0.15 * k]].reverse(), om, null,
-      [[0, 1], [1, 1], [1, 0], [0, 0]]);
-    this._bar([-0.43 * k, 0.24 * k, -0.71 * k], [-0.43 * k, 0.335 * k, 0.16 * k], 0.02, this.M.frame);
-    this._bar([0.43 * k, 0.24 * k, -0.71 * k], [0.43 * k, 0.335 * k, 0.16 * k], 0.02, this.M.frame);
+    var k = this.L.k, self = this, boeing = this.L.maker === 'boeing';
+    var O = (boeing ? SPEC.boeing : SPEC.airbus).ovh, w = O.w * k;
+    var F = [O.front[0] * k, O.front[1] * k], Bd = [O.bend[0] * k, O.bend[1] * k], A = [O.aft[0] * k, O.aft[1] * k];
+    var l1 = Math.hypot(Bd[0] - F[0], Bd[1] - F[1]), l2 = Math.hypot(A[0] - Bd[0], A[1] - Bd[1]), lt = l1 + l2;
+    // 贴图画布按面板实际展开尺寸取宽高比 -> 不拉伸
+    var CW = 1024, CH = Math.round(CW * lt / (2 * w));
+    var oc = mkCanvas(CW, CH), ot = this._tex(oc), photo = false;   // 顶板由三维可操作开关面板组成, 不再叠加照片 (避免照片按钮与真实开关错位)
+    var draw = function () {
+      var g = oc.getContext('2d');
+      self._drawOverhead(oc);
+      var im = photo && self._abImg('overhead');
+      if (im) {
+        // 照片 (前部各系统面板, 1024x689) 按原比例放在顶板前段 (画布下方 = 前缘)
+        var ph = Math.round(CW * 689 / 1024);
+        g.drawImage(im, 0, CH - ph, CW, ph);
+        // 后段: 维护 / 断路器面板 (程序绘制)
+        g.fillStyle = '#4b5a69'; g.fillRect(0, 0, CW, CH - ph);
+        g.fillStyle = '#d9dde2'; g.font = 'bold 22px sans-serif'; g.textAlign = 'center';
+        g.fillText('MAINTENANCE PANEL', CW / 2, 30);
+        for (var r = 0; r < Math.floor((CH - ph - 50) / 26); r++) for (var c = 0; c < 40; c++) {
+          g.fillStyle = '#1b1e22'; g.beginPath(); g.arc(30 + c * 24.5, 60 + r * 26, 6, 0, 7); g.fill();
+        }
+      }
+      ot.needsUpdate = true;
+    };
+    this._ovhRedraw = draw; draw();
+    var om = this._mat(0xffffff, { map: ot }), vb = l2 / lt;
+    var P0 = [-w, F[0], F[1]], P1 = [w, F[0], F[1]], P2 = [w, Bd[0], Bd[1]], P3 = [-w, Bd[0], Bd[1]], P4 = [w, A[0], A[1]], P5 = [-w, A[0], A[1]];
+    this._poly([P0, P1, P2, P3].reverse(), om, null, [[0, 0], [1, 0], [1, 1 - vb], [0, 1 - vb]].reverse());
+    this._poly([P3, P2, P4, P5].reverse(), om, null, [[0, 1 - vb], [1, 1 - vb], [1, 1], [0, 1]].reverse());
+    // 两侧边框 (沿面板边缘, 不向下伸出)
+    [-1, 1].forEach(function (s) {
+      self._bar([s * (w + 0.012), F[0], F[1]], [s * (w + 0.012), Bd[0], Bd[1]], 0.024, self.M.frame);
+      self._bar([s * (w + 0.012), Bd[0], Bd[1]], [s * (w + 0.012), A[0], A[1]], 0.024, self.M.frame);
+    });
   };
 
   /* ---------------- 座椅 (从另一侧座位可见) ---------------- */
@@ -516,27 +731,76 @@
       this._box(0.06, 0.05, 0.40, M.seat, 0.27, -0.50 * k, -0.02, 0, 0, 0, g);           // 扶手
       this._box(0.06, 0.05, 0.40, M.seat, -0.27, -0.50 * k, -0.02, 0, 0, 0, g);
       this._box(0.04, 0.35, 0.04, M.frame, 0.24, -0.55 * k, 0.12, 0, 0, 0, g);           // 滑轨立柱示意
+      this._cyl(0.06, 0.06, 0.50, 14, M.seat, 0, -0.70 * k + 0.0, -0.33, 0, 0, Math.PI / 2, g);   // 坐垫前缘圆角
+      this._cyl(0.055, 0.055, 0.66, 14, M.seat, 0.24, -0.30 * k, 0.15, -0.18, 0, 0, g);           // 靠背侧翼
+      this._cyl(0.055, 0.055, 0.66, 14, M.seat, -0.24, -0.30 * k, 0.15, -0.18, 0, 0, g);
+      this._box(0.40, 0.035, 0.05, M.frame, 0, -0.795 * k, -0.08, 0, 0, 0, g);                  // 座椅底架
       this.seats.push({ side: s, g: g });
     }
   };
 
-  /** 遮阳板、侧窗玻璃、脚蹬示意等细节 */
+  /** 遮阳板、侧窗玻璃、脚蹬、氧气面罩、跳座椅、断路器面板、地毯等细节 */
   P._buildExtras = function () {
-    var k = this.L.k, M = this.M, V = this._v.bind(this), self = this;
+    var THREE = this.THREE, k = this.L.k, M = this.M, V = this._v.bind(this), self = this;
+    var YF = -1.15 * k;
     // 半透明侧窗玻璃 (加深舱内立体感, 不挡视线太多)
     var glass = this._mat(0x6a8098, { flat: true, transparent: true, opacity: 0.10, toneMapped: false });
     glass.userData.emissive = true;
     [1, -1].forEach(function (sx) {
       function S(p) { return sx > 0 ? p : [-p[0], p[1], p[2]]; }
       self._poly([S(V(-0.975, -0.18, -0.55)), S(V(-0.975, -0.18, 0.18)), S(V(-0.915, 0.20, 0.18)), S(V(-0.915, 0.20, -0.55))], glass);
-      // 遮阳板 (风挡上方内侧)
+      // 遮阳板 (风挡上方内侧) + 收纳滑轨
       var vis = self._box(0.28 * k, 0.012, 0.16 * k, M.door, sx * 0.36 * k, 0.18 * k, -0.72 * k, 0.55, 0, sx * 0.08);
       vis.rotation.x = 0.15;
+      self._bar([sx * 0.22 * k, 0.235 * k, -0.76 * k], [sx * 0.50 * k, 0.225 * k, -0.74 * k], 0.012 * k, M.frame);
     });
-    // 方向舵脚蹬示意 (机长侧)
-    var pedX = this.eyeX;
-    this._box(0.08, 0.02, 0.12, M.stick, pedX - 0.10, -1.05 * k, -0.55 * k);
-    this._box(0.08, 0.02, 0.12, M.stick, pedX + 0.10, -1.05 * k, -0.55 * k);
+
+    /* ---- 方向舵脚蹬 (机长 / 副驾两侧, 带支臂) ---- */
+    var pedY = -1.05 * k, pedZ = -0.56 * k;
+    [1, -1].forEach(function (sx) {
+      var px = sx * 0.53 * k;
+      self._box(0.085 * k, 0.02 * k, 0.14 * k, M.stick, px - 0.10 * k, pedY, pedZ, -0.35, 0, 0);
+      self._box(0.085 * k, 0.02 * k, 0.14 * k, M.stick, px + 0.10 * k, pedY, pedZ, -0.35, 0, 0);
+      // 脚蹬支臂 (向前下方接到地板)
+      self._bar([px, pedY + 0.01 * k, pedZ], [px, YF + 0.06 * k, pedZ - 0.16 * k], 0.02 * k, M.frame);
+    });
+
+    /* ---- 第三乘员跳座椅 (中央后方) + 氧气面罩 ---- */
+    var js = new THREE.Group(); js.position.set(0, 0, 0.50 * k); this.group.add(js);
+    self._box(0.44 * k, 0.10 * k, 0.42 * k, M.seat, 0, -0.72 * k, 0, 0, 0, 0, js);
+    self._box(0.42 * k, 0.62 * k, 0.10 * k, M.seat, 0, -0.36 * k, 0.20 * k, -0.16, 0, 0, js);
+    self._box(0.30 * k, 0.16 * k, 0.10 * k, M.seat, 0, 0.08 * k, 0.27 * k, -0.16, 0, 0, js);
+    self._box(0.05 * k, 0.42 * k, 0.05 * k, M.frame, 0.20 * k, -0.60 * k, 0.16 * k, 0, 0, 0, js);
+    self._box(0.05 * k, 0.42 * k, 0.05 * k, M.frame, -0.20 * k, -0.60 * k, 0.16 * k, 0, 0, 0, js);
+    self._box(0.11 * k, 0.06 * k, 0.11 * k, M.door, 0.32 * k, -0.42 * k, 0.30 * k);   // 面罩盒
+    self._box(0.11 * k, 0.02 * k, 0.03 * k, M.red, 0.32 * k, -0.38 * k, 0.34 * k);
+
+    /* ---- 侧操纵台附件: 氧气面罩盒 / 耳机 / 应急手电 / 笔记本电脑收纳 ---- */
+    [1, -1].forEach(function (sx) {
+      var cx = (sx > 0 ? -1 : 1) * 0.89 * k;      // 与侧操纵台同侧
+      var topY = -0.60 * k, cz = -0.16 * k;
+      self._box(0.11 * k, 0.05 * k, 0.13 * k, M.door, cx, topY + 0.025 * k, cz + 0.22 * k);   // 氧气面罩盒
+      self._box(0.11 * k, 0.02 * k, 0.03 * k, M.red, cx, topY + 0.05 * k, cz + 0.28 * k);
+      self._cyl(0.05 * k, 0.05 * k, 0.018 * k, 14, M.stick, cx, topY + 0.03 * k, cz - 0.04 * k, Math.PI / 2, 0, 0); // 耳机
+      self._cyl(0.016 * k, 0.016 * k, 0.10 * k, 10, M.lever, cx, topY + 0.045 * k, cz - 0.20 * k, 0, 0, Math.PI / 2); // 应急手电
+      self._box(0.16 * k, 0.03 * k, 0.22 * k, M.panel, cx, topY + 0.015 * k, cz + 0.44 * k);  // 笔记本电脑托盘
+    });
+
+    /* ---- 后隔板: 断路器 (AZS) 面板 + 衣帽钩 ---- */
+    var zb = 0.88 * k;
+    [1, -1].forEach(function (sx) {
+      self._box(0.30 * k, 0.44 * k, 0.03 * k, M.panel, sx * 0.62 * k, -0.55 * k, zb);
+      for (var r = 0; r < 3; r++) {
+        for (var c2 = 0; c2 < 4; c2++) {
+          self._box(0.032 * k, 0.032 * k, 0.02 * k, M.bezel,
+            sx * 0.62 * k + (c2 - 1.5) * 0.066 * k, -0.40 * k - r * 0.105 * k, zb + 0.012 * k);
+        }
+      }
+    });
+
+    /* ---- 地板地毯 (略内缩, 深色) ---- */
+    this._poly([[-0.90 * k, YF + 0.008 * k, -0.92 * k], [0.90 * k, YF + 0.008 * k, -0.92 * k],
+      [0.90 * k, YF + 0.008 * k, 0.86 * k], [-0.90 * k, YF + 0.008 * k, 0.86 * k]], this._mat(0x24262a));
   };
 
   /* =====================================================================
@@ -662,12 +926,16 @@
   P._toggle = function (pn, x, y, sp) {
     var THREE = this.THREE, M = this.M, g = pn.g, self = this;
     this._box(0.02, 0.026, 0.004, M.black, x, y, 0.002, 0, 0, 0, g);
+    if (/^eng-master/.test(sp.id || '')) {          // 主电门两侧护栏 (防误碰)
+      this._box(0.004, 0.05, 0.03, M.frame, x - 0.017, y, 0.015, 0, 0, 0, g);
+      this._box(0.004, 0.05, 0.03, M.frame, x + 0.017, y, 0.015, 0, 0, 0, g);
+    }
     var pv = new THREE.Group(); pv.position.set(x, y, 0.004); g.add(pv);
     this._cyl(0.0032, 0.0042, 0.024, 8, M.knob, 0, 0, 0.012, Math.PI / 2, 0, 0, pv);
     this._cyl(0.0055, 0.0055, 0.006, 10, M.knob, 0, 0, 0.025, Math.PI / 2, 0, 0, pv);
     var on = -0.5 * (sp.onDir || 1);
     this._regAnim(pv.rotation, 'x', function () { return safe(sp.get, false) ? on : -on; });
-    pn.label(sp.label, x, y + 0.027, 0.0095);
+    pn.label(sp.label, x, y + (sp.labelSize ? 0.017 : 0.027), sp.labelSize || 0.0095);
     if (sp.on !== '') pn.label(sp.on || 'ON', x, y + (sp.onDir || 1) * 0.0165, 0.0075, '#cfd3d6');
     if (sp.off !== '') pn.label(sp.off || 'OFF', x, y - (sp.onDir || 1) * 0.0165, 0.0075, '#cfd3d6');
     if (sp.lamp) {
@@ -700,9 +968,11 @@
     var step = sp.step || Math.min(0.6, 2.4 / Math.max(1, n - 1)), r = sp.r || 0.014;
     var pv = new THREE.Group(); pv.position.set(x, y, 0.002); g.add(pv);
     this._cyl(r, r * 1.1, 0.012, 16, M.stick, 0, 0, 0.006, Math.PI / 2, 0, 0, pv);
+    this._cyl(r * 1.22, r * 1.25, 0.004, 28, M.frame, 0, 0, 0.002, Math.PI / 2, 0, 0, pv);   // 底座环
+    for (var kn = 0; kn < 12; kn++) { var ka = kn / 12 * Math.PI * 2; this._box(0.0015, 0.0015, 0.011, M.black, Math.cos(ka) * r * 1.02, Math.sin(ka) * r * 1.02, 0.006, 0, 0, 0, pv); }   // 滚花
     this._box(r * 0.45, r * 1.9, 0.008, M.knob, 0, r * 0.35, 0.013, 0, 0, 0, pv);
     this._regAnim(pv.rotation, 'z', function () { var i = safe(sp.get, 0); return -(i - (n - 1) / 2) * step; }, 14);
-    pn.label(sp.label, x, y + r + 0.022, 0.0095);
+    pn.label(sp.label, x, y + r + (sp.labelSize ? 0.012 : 0.022), sp.labelSize || 0.0095);
     for (var i = 0; i < n; i++) {
       var a = (i - (n - 1) / 2) * step, rr = r + 0.0105;
       pn.label(sp.positions[i], x + Math.sin(a) * rr, y + Math.cos(a) * rr, 0.0072, '#d8dcdf');
@@ -760,10 +1030,193 @@
     this._annLamp(pv, 0, 0, 0.0085, 0.023, 0.019, sp.legend);
     var anim = this._regAnim(pv.position, 'z', function () { return anim.pressT > 0 ? 0.001 : 0.004; }, 30);
     anim.pressT = 0;
-    pn.label(sp.label, x, y + 0.022, sp.labelSize || 0.0085);
+    pn.label(sp.label, x, y + (sp.labelSize ? 0.017 : 0.022), sp.labelSize || 0.0085);
     if (sp.sub) pn.label(sp.sub, x, y - 0.0185, 0.0068, '#cfd3d6');
     return this._ctl(this._hitbox(0.034, 0.03, 0.03, x, y, 0.012, g),
       { id: sp.id, tip: sp.tip, click: function (dir) { anim.pressT = 0.18; self._sfx(); sp.press(dir); } });
+  };
+
+  /* ---------------- 数据驱动头顶板 (FS.OVERHEAD_LAYOUTS) ----------------
+     功能控件 (f=id) 用真实可点击控件; 其余外观控件用合并实例 (InstancedMesh) + 面板贴图上的灯字, 保证性能 */
+  P._buildOverheadData = function (layout, FN, ovhPanel) {
+    var self = this, THREE = this.THREE, M = this.M;
+    var inst = {};   // 名称 → { geo, mat, list: [Matrix4] }
+    function addInst(key, geo, mat, pn, x, y, z, rz, sx, sy, sz) {
+      var I = inst[key] || (inst[key] = { geo: geo, mat: mat, list: [] });
+      I.list.push({ g: pn.g, x: x, y: y, z: z, rz: rz || 0, s: [sx || 1, sy || 1, sz || 1] });
+    }
+    var G = {
+      box: new THREE.BoxGeometry(1, 1, 1), cyl: new THREE.CylinderGeometry(1, 1, 1, 18), cyl8: new THREE.CylinderGeometry(1, 1, 1, 8)
+    };
+    var MAT = { bezel: M.bezel, frame: M.frame, knob: M.knob, stick: M.stick, red: this._mat(0xc21d1d), black: M.black,
+      guard: this._mat(0x1f2124), fire: this._mat(0xb51414, { flat: true }) };
+    function capDraw(pn, x, y, w, h, legend, label, lsz) {
+      var c = pn.ctx, sx = pn.sx, sy = pn.sy, X = (x - w / 2 + pn.w / 2) * sx, Y = (pn.h / 2 - y - h / 2) * sy;
+      c.fillStyle = '#0b0c0d'; c.fillRect(X, Y, w * sx, h * sy);
+      var parts = (legend || '').split('/');
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = 'bold ' + Math.max(6, Math.round(h * sy * 0.30)) + 'px sans-serif';
+      if (parts[0]) { c.fillStyle = '#4a3a1c'; c.fillText(parts[0], X + w * sx / 2, Y + h * sy * 0.3); }
+      if (parts[1]) { c.fillStyle = '#3a3e42'; c.fillText(parts[1], X + w * sx / 2, Y + h * sy * 0.72); }
+      if (label) pn.label(label, x, y + h / 2 + 0.0075, lsz);
+    }
+    var CELL = { cw: 1, rh: 1 };
+    function pbVis(pn, x, y, legend, label, lsz, guard) {
+      var w = Math.min(0.022, CELL.cw * 0.8), h = Math.min(0.019, CELL.rh * 0.55);
+      capDraw(pn, x, y, w, h, legend, label, lsz);
+      // 斜边按钮框 (四边)
+      addInst('bzH', G.box, MAT.bezel, pn, x, y + h / 2 + 0.0015, 0.003, 0, w + 0.006, 0.003, 0.006);
+      addInst('bzH', G.box, MAT.bezel, pn, x, y - h / 2 - 0.0015, 0.003, 0, w + 0.006, 0.003, 0.006);
+      addInst('bzH', G.box, MAT.bezel, pn, x - w / 2 - 0.0015, y, 0.003, 0, 0.003, h, 0.006);
+      addInst('bzH', G.box, MAT.bezel, pn, x + w / 2 + 0.0015, y, 0.003, 0, 0.003, h, 0.006);
+      if (guard) {   // 护盖: 两侧板 + 顶罩 (红色或黑色)
+        var gm = guard === 'red' ? 'gRed' : 'gBlk', gmat = guard === 'red' ? MAT.red : MAT.guard;
+        addInst(gm, G.box, gmat, pn, x - w / 2 - 0.004, y, 0.009, 0, 0.002, h + 0.006, 0.016);
+        addInst(gm, G.box, gmat, pn, x + w / 2 + 0.004, y, 0.009, 0, 0.002, h + 0.006, 0.016);
+        addInst(gm, G.box, gmat, pn, x, y - h / 2 - 0.003, 0.016, 0, w + 0.01, 0.002, 0.004);
+      }
+    }
+    function knobVis(pn, x, y, label, lsz, pos, r) {
+      r = Math.min(r || 0.009, CELL.cw * 0.3, CELL.rh * 0.22);
+      addInst('kSk', G.cyl, MAT.frame, pn, x, y, 0.002, 0, r * 1.25, 0.004, r * 1.25);
+      addInst('kBd', G.cyl, MAT.stick, pn, x, y, 0.008, 0, r, 0.012, r);
+      addInst('kPt', G.box, MAT.knob, pn, x, y + r * 0.35, 0.0145, 0, r * 0.4, r * 1.6, 0.002);
+      if (label) pn.label(label, x, y + r + 0.012, lsz);
+      if (pos) { var n = pos.length, st = Math.min(0.6, 2.4 / Math.max(1, n - 1)); pos.forEach(function (t, i) { var a = (i - (n - 1) / 2) * st, rr = r + 0.007; pn.label(t, x + Math.sin(a) * rr, y + Math.cos(a) * rr, 0.0052, '#d8dcdf'); }); }
+    }
+    function tgVis(pn, x, y, label, lsz, pos, guard) {
+      addInst('tBs', G.box, MAT.black, pn, x, y, 0.002, 0, 0.012, 0.016, 0.004);
+      addInst('tLv', G.cyl8, MAT.knob, pn, x, y + 0.003, 0.011, 0, 0.0024, 0.02, 0.0024);
+      if (label) pn.label(label, x, y + 0.017, lsz);
+      if (pos) { pn.label(pos[0], x, y + 0.0095, 0.0048, '#cfd3d6'); pn.label(pos[pos.length - 1], x, y - 0.0115, 0.0048, '#cfd3d6'); }
+      if (guard) { addInst('gRed', G.box, MAT.red, pn, x, y, 0.012, 0, 0.016, 0.02, 0.003); }
+    }
+    layout.forEach(function (P) {
+      var pn = ovhPanel(P.z, P.w, P.h, [[P.n, 0, P.h / 2 - 0.0065, 0.0072, '#ffffff']], P.x);
+      var nR = P.rows.length, top = P.h / 2 - 0.014, rowH = (P.h - 0.018) / nR;
+      P.rows.forEach(function (row, ri) {
+        var y = top - (ri + 0.5) * rowH + 0.002, m = row.length, cw = P.w / m;
+        var lsz = Math.min(0.0068, cw * 0.13);
+        row.forEach(function (spec, ci) {
+          var n0 = self.clickables.length; CELL.cw = cw; CELL.rh = rowH; cell(spec, ci);
+          for (var hi = n0; hi < self.clickables.length; hi++) {   // 点击盒收进本格, 避免斜视时与相邻控件重叠
+            var hb = self.clickables[hi], gp = hb.geometry && hb.geometry.parameters; if (!gp || !gp.width) continue;
+            hb.scale.set(Math.min(1, cw * 0.88 / gp.width), Math.min(1, rowH * 0.8 / gp.height), Math.min(1, 0.012 / gp.depth));
+            hb.position.z = Math.min(hb.position.z, 0.007);
+          }
+        });
+        function cell(spec, ci) {
+          var a = spec.split('|'), t = a[0], lab = a[1] || '', ex = a[2] || '', op = a.slice(3).join('|');
+          var fid = (/(?:^|\|)f=([\w-]+)/.exec(spec) || [])[1];
+          if (/^f=/.test(ex)) ex = '';
+          var x = -P.w / 2 + (ci + 0.5) * cw, it = fid && FN[fid];
+          if (fid === 'adirs-pb' && FN['adirs-ir1']) {   // 777 / 787: 单个 ADIRU ON/OFF 按钮 → 所有 IR 置 NAV / OFF
+            var irs = Object.keys(FN).filter(function (k2) { return /^adirs-ir\d/.test(k2); }).map(function (k2) { return FN[k2].sp; });
+            var nav = irs[0].positions.indexOf('NAV');
+            self._annBtn(pn, x, y, { id: 'adirs-pb', label: lab, labelSize: lsz, tip: 'ADIRU 电门 (点击 开 / 关)',
+              legend: function () { var on = irs[0].get() > 0; return [{ t: 'OFF', col: '#f2f2f2', on: !on }, { t: 'ON BAT', col: '#ffb000', on: false }]; },
+              press: function () { var on = irs[0].get() > 0; irs.forEach(function (r) { r.set(on ? 0 : nav); }); } });
+            return;
+          }
+          if (fid === 'elec-bat' && FN['elec-bat1'] && FN['elec-bat2']) {   // 单个 BATTERY 电门 → BAT1 + BAT2 同步
+            var b1 = FN['elec-bat1'].sp, b2 = FN['elec-bat2'].sp;
+            self._annBtn(pn, x, y, { id: 'elec-bat', label: lab, labelSize: lsz, tip: 'BATTERY 电门 (点击 开 / 关)',
+              legend: function () { return [{ t: 'OFF', col: '#f2f2f2', on: !b1.get() }, { t: '', col: '#ffb000', on: false }]; },
+              press: function () { var on = b1.get(); if (b1.get() === on) b1.press(1); if (b2.get() === on) b2.press(1); } });
+            return;
+          }
+          if (fid === 'apu-rot' && FN.apu && FN['apu-start']) {   // 波音 APU 旋钮 OFF / ON / START (START 弹回 ON)
+            var am = FN.apu.sp, as = FN['apu-start'].sp;
+            self._rotary(pn, x, y - 0.004, { id: 'apu', label: lab, labelSize: lsz, r: 0.008, positions: ['OFF', 'ON', 'START'], tip: 'APU 电门 (OFF / ON / START)',
+              get: function () { return am.get() ? 1 : 0; },
+              set: function (i) { var on = am.get(); if (i === 0 && on) am.press(1); else if (i >= 1 && !on) am.press(1); if (i === 2) as.press(1); } });
+            // START 档单独热区 (旋钮右侧), 供直接点击起动
+            self._ctl(self._hitbox(0.009, 0.01, 0.01, x + 0.016, y + 0.002, 0.008, pn.g), { id: 'apu-start', tip: 'APU START (转到 START, 松手回 ON)',
+              click: function () { if (!am.get()) am.press(1); as.press(1); } });
+            return;
+          }
+          if (it) {
+            var sp = Object.assign({}, it.sp || {}, { label: lab, labelSize: lsz });
+            if (it.t === 'pb' && (t === 'tg' || t === 'gtg') && sp.get) {   // 波音: 同一功能用拨杆 (电瓶等)
+              self._toggle(pn, x, y, Object.assign(sp, { on: '', off: '', onDir: -1, toggle: function () { sp.press(1); } }));
+              if (t === 'gtg') addInst('gRed', G.box, MAT.red, pn, x, y + 0.004, 0.016, 0, 0.018, 0.012, 0.002);
+              return;
+            }
+            var onOf = it.t === 'pb' ? sp.get : (it.t === 'tg' ? sp.get : null);
+            if ((it.t === 'pb' || it.t === 'tg') && (t === 'rot' || t === 'knob') && onOf) {   // 旋钮式开关 (777 防冰 / E190 灯光 / 737 PACK)
+              var ps = ex.split(','), hasOff = /OFF|CLOSE/.test(ps[0]) ? 0 : -1;
+              if (ps.length < 2) ps = ['OFF', 'ON'];
+              var onI = Math.max(1, ps.indexOf('AUTO') >= 0 ? ps.indexOf('AUTO') : (ps.indexOf('ON') >= 0 ? ps.indexOf('ON') : 1));
+              var flip = function () { if (it.t === 'pb') sp.press(1); else (sp.toggle || sp.press)(1); };
+              self._rotary(pn, x, y - 0.004, { id: sp.id, label: lab, labelSize: lsz, r: 0.008, positions: ps, tip: sp.tip,
+                get: function () { var on = !!onOf(); return hasOff < 0 ? (on ? 0 : 1) : (on ? onI : 0); },
+                set: function (i) { var want = hasOff < 0 ? i === 0 : i > 0; if (!!onOf() !== want) flip(); } });
+              return;
+            }
+            if (it.t === 'rot' && (t === 'pb' || t === 'pbg')) {   // 按钮式隔离活门 (A350 X BLEED / 777 ISLN): AUTO ↔ OPEN
+              var rp = it.sp, op2 = rp.positions.indexOf('OPEN'), au = rp.positions.indexOf('AUTO');
+              self._annBtn(pn, x, y, { id: rp.id, label: lab, labelSize: lsz, tip: rp.tip,
+                legend: function () { return [{ t: 'FAULT', col: '#ffb000', on: false }, { t: 'OPEN', col: '#f2f2f2', on: rp.get() === op2 }]; },
+                press: function () { rp.set(rp.get() === op2 ? au : op2); } });
+              return;
+            }
+            if (it.t === 'pb') { self._annBtn(pn, x, y, sp); return; }
+            if (it.t === 'tg' && /f2=light-logo/.test(spec) && FN['light-logo']) {   // 空客 NAV & LOGO 单一电门: 同时控制航行灯与标志灯
+              var lg = FN['light-logo'].sp, nv = it.sp;
+              self._toggle(pn, x, y, Object.assign(sp, { on: '', off: '', toggle: function () { nv.toggle(); if (!!lg.get() !== !!nv.get()) lg.toggle(); } }));
+              var nm = self.ctlById[sp.id];
+              if (nm) self.ctlById['light-logo'] = { mesh: nm.mesh, ctl: { id: 'light-logo', tip: lg.tip, click: function () { lg.toggle(); } } };
+              return;
+            }
+            if (it.t === 'tg') { self._toggle(pn, x, y, Object.assign(sp, { on: '', off: '' })); return; }
+            if (it.t === 'rot') { self._rotary(pn, x, y - 0.004, Object.assign(sp, { r: 0.008 })); return; }
+            if (it.t === 'lamp') { self._annLamp(pn.g, x, y, 0.003, 0.022, 0.01, it.fn); pn.label(lab, x, y + 0.011, lsz); return; }
+          }
+          if (t === 'pb') pbVis(pn, x, y, ex, lab, lsz, null);
+          else if (t === 'pbg') pbVis(pn, x, y, ex, lab, lsz, /red/.test(op) ? 'red' : 'black');
+          else if (t === 'fire') {
+            addInst('fire', G.box, MAT.fire, pn, x, y, 0.012, 0, 0.05, 0.026, 0.02);
+            pn.label(lab, x, y + 0.02, lsz * 1.2); pn.label('PUSH', x, y - 0.019, 0.005);
+          } else if (t === 'rot') knobVis(pn, x, y - 0.003, lab, lsz, ex.split(','), 0.008);
+          else if (t === 'knob') knobVis(pn, x, y - 0.003, lab, lsz, null, 0.009);
+          else if (t === 'tg') tgVis(pn, x, y, lab, lsz, ex.split(','), false);
+          else if (t === 'gtg') tgVis(pn, x, y, lab, lsz, ex.split(','), true);
+          else if (t === 'lamp') { capDraw(pn, x, y, 0.022, 0.01, ex || lab, '', lsz); pn.label(lab, x, y + 0.011, lsz); }
+          else if (t === 'kp') {   // 键盘 (列x行), 每键一个小方键
+            var kd = (ex || '4x2').split('x'), kc = +kd[0] || 4, kr = +kd[1] || 2, kw = Math.min(0.012, cw * 0.9 / kc), kh = Math.min(0.010, rowH * 0.8 / kr);
+            for (var kx = 0; kx < kc; kx++) for (var ky = 0; ky < kr; ky++) {
+              var kxx = x + (kx - (kc - 1) / 2) * kw * 1.15, kyy = y - 0.002 + ((kr - 1) / 2 - ky) * kh * 1.2;
+              addInst('key', G.box, MAT.stick, pn, kxx, kyy, 0.003, 0, kw * 0.92, kh * 0.9, 0.005);
+            }
+            if (lab) pn.label(lab, x, y + kr * kh * 0.6 + 0.006, lsz);
+          }
+          else if (t === 'disp') {
+            var c = pn.ctx, X = (x - 0.018 + pn.w / 2) * pn.sx, Y = (pn.h / 2 - y - 0.007) * pn.sy;
+            c.fillStyle = '#050505'; c.fillRect(X, Y, 0.036 * pn.sx, 0.014 * pn.sy);
+            if (lab) pn.label(lab, x, y + 0.013, lsz);
+          }
+        }
+      });
+      if (pn.mat.map) pn.mat.map.needsUpdate = true;
+    });
+    // 合并为 InstancedMesh (每类一个绘制调用)
+    this.group.updateMatrixWorld(true);
+    var inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert(), mtx = new THREE.Matrix4(), loc = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    Object.keys(inst).forEach(function (key) {
+      var I = inst[key], geo = I.geo;
+      if (geo.type === 'CylinderGeometry' && !I._rot) { geo = geo.clone(); geo.rotateX(Math.PI / 2); }   // 圆柱轴 → 面板法线
+      var im = new THREE.InstancedMesh(geo, I.mat, I.list.length);
+      I.list.forEach(function (o, i) {
+        e.set(0, 0, o.rz); q.setFromEuler(e);
+        var s = o.s; if (geo !== I.geo) s = [s[0], s[2], s[1]];
+        loc.compose(new THREE.Vector3(o.x, o.y, o.z), q, new THREE.Vector3(s[0], s[1], s[2]));
+        mtx.multiplyMatrices(inv, o.g.matrixWorld).multiply(loc);
+        im.setMatrixAt(i, mtx);
+      });
+      im.instanceMatrix.needsUpdate = true;
+      im.userData.noBake = true;
+      self.group.add(im);
+    });
   };
 
   /* ---------------- 面板布置 ---------------- */
@@ -780,7 +1233,7 @@
     /** 通用的 "开关量" 按钮 (FAULT / OFF 或 FAULT / ON) */
     function swBtn(id, label, tip, key, idx, onLegend, faultFn, sub) {
       function get() { var s = sys(); if (!s) return true; return idx === undefined ? !!s.sw[key] : !!s.sw[key][idx]; }
-      return { t: 'pb', w: 0.062, sp: { id: id, label: label, sub: sub, tip: tip + ' (点击 开 / 关)',
+      return { t: 'pb', w: 0.062, sp: { id: id, label: label, sub: sub, tip: tip + ' (点击 开 / 关)', get: get,
         legend: function () {
           var on = get(), f = faultFn ? safe(faultFn, false) : false;
           return onLegend ? L2('FAULT', AMB, f, 'ON', BLU, on) : L2(boeing ? 'LOW PRESS' : 'FAULT', AMB, f, 'OFF', WHT, !on);
@@ -800,40 +1253,32 @@
 
     /* ---- 1. 头顶板前部: 外部灯光 (真实拨杆) ---- */
     // 头顶板平面: (y 0.245k, z -0.70k) → (y 0.34k, z 0.15k); 局部 +y = 朝后, +z = 朝下 (指向飞行员)
-    var sl = 0.095 / 0.85, th = Math.atan2(0.85, 0.095);
-    var off = 0.007;                         // 面板略低于头顶板, 避免 z-fighting
-    function ovhPanel(zc, w, h, labels) {
-      var z = zc * k, yc = 0.245 * k + (z + 0.70 * k) * sl;
-      return self._panel({ pos: [0, yc - off, z], rotX: th, w: w, h: h, labels: labels });
+    var O = (boeing ? SPEC.boeing : SPEC.airbus).ovh;
+    var off = 0.007;                         // 面板略低于顶板, 避免 z-fighting
+    function ovhPanel(zc, w, h, labels, xc) {
+      var z = zc * k, A = O.bend[1] * k > z ? [O.front, O.bend] : [O.bend, O.aft];
+      var y0 = A[0][0] * k, z0 = A[0][1] * k, y1 = A[1][0] * k, z1 = A[1][1] * k;
+      var t = (z - z0) / (z1 - z0), yc = y0 + t * (y1 - y0), th = Math.atan2(z1 - z0, y1 - y0);
+      return self._panel({ pos: [(xc || 0) * k, yc - off, z], rotX: th, w: w, h: h, labels: labels });
     }
     var LT = boeing
       ? [['strobe', 'STROBE', '频闪灯'], ['beacon', 'ANTI COL', '防撞信标灯 (BEACON)'], ['wing', 'WING', '机翼照明灯'], ['nav', 'POSITION', '航行灯'],
         ['logo', 'LOGO', '标志灯'], ['landing', 'LANDING', '着陆灯'], ['rwyTurnoff', 'RWY TURNOFF', '跑道脱离灯'], ['taxi', 'TAXI', '滑行灯 / 前轮灯'], ['cabin', 'CABIN', '客舱灯']]
       : [['strobe', 'STROBE', '频闪灯'], ['beacon', 'BEACON', '防撞信标灯'], ['wing', 'WING', '机翼照明灯'], ['nav', 'NAV', '航行灯'],
         ['logo', 'LOGO', '标志灯'], ['landing', 'LAND', '着陆灯'], ['rwyTurnoff', 'RWY T.OFF', '跑道脱离灯'], ['taxi', 'TAXI', '滑行灯 / 前轮灯'], ['cabin', 'CABIN', '客舱灯']];
-    var ow = 0.70, oh = 0.10;
-    var ovh = ovhPanel(-0.585, ow, oh, [['EXT LT', -ow / 2 + 0.05, oh / 2 - 0.012, 0.010, '#ffffff']]);
-    var dx = 0.071, x0 = -ow / 2 + 0.06;
-    LT.forEach(function (L, i) {
+    var ltItems = LT.map(function (L) {
       var key = L[0];
-      self._toggle(ovh, x0 + i * dx, -0.004, {
-        id: 'light-' + key, label: L[1], tip: L[2] + ' (点击开 / 关)', onDir: -1,
+      return { t: 'tg', w: boeing ? 0.042 : 0.046, sp: { id: 'light-' + key, label: L[1], tip: L[2] + ' (点击开 / 关)', onDir: -1,
         get: function () { var s = sim(); return !!(s.lights && s.lights[key]); },
-        toggle: function () {
-          var s = sim(); if (!s.getLights || !s.setLights) return;
-          var st = s.getLights(); st[key] = !st[key]; s.setLights(st);
-          notify(L[2] + (st[key] ? ' 开' : ' 关'));
-        }
-      });
+        toggle: function () { var s = sim(); if (!s.getLights || !s.setLights) return; var st = s.getLights(); st[key] = !st[key]; s.setLights(st); notify(L[2] + (st[key] ? ' 开' : ' 关')); } } };
     });
-    ovh.frame(x0 + 4 * dx, -0.004, 9 * dx + 0.01, 0.085);
-    if (ovh.mat.map) ovh.mat.map.needsUpdate = true;
 
     /* ---- 1b. beta 0.4.2 冷舱启动: 头顶板 4 排系统面板 (空客 / 波音两套标签, 同一套系统逻辑) ---- */
-    function row(zc, sections) {
-      var W = 0.78, H = 0.10, gap = 0.014, total = -gap;
+    function row(zc, sections, xc, Wfix) {
+      var H = 0.10, gap = 0.014, total = -gap;
       sections.forEach(function (s) { total += gap; s.items.forEach(function (it) { total += it.w; }); });
-      var pn = ovhPanel(zc, W, H, []);
+      var W = Wfix || total + 0.03;
+      var pn = ovhPanel(zc, W, H, [], xc);
       var x = -total / 2;
       sections.forEach(function (sec) {
         var sx0 = x;
@@ -854,6 +1299,7 @@
     }
     function apuMaster() {
       return { t: 'pb', w: 0.062, sp: { id: 'apu', label: boeing ? 'APU' : 'MASTER SW', tip: 'APU 主电门 MASTER SW (点击 开 / 关)',
+        get: function () { var s = sys(); return s ? !!s.sw.apuMaster : !!(fm() && fm().apuRunning); },
         legend: function () { var s = sys(); var on = s ? s.sw.apuMaster : !!(fm() && fm().apuRunning); return L2('FAULT', AMB, false, 'ON', BLU, on); },
         press: function () {
           var s = sys(), f = fm(); if (!f) return;
@@ -878,8 +1324,8 @@
       }) });
     }
     row1.push({ title: 'SIGNS', items: [seat] });
-    row(-0.47, row1);
-    row(-0.355, [
+    var R1 = row1;
+    var R2 = [
       { title: 'ELEC', items: [
         swBtn('elec-bat1', boeing ? 'BATTERY' : 'BAT 1', boeing ? '主电瓶' : '电瓶 1', 'bat1'),
         swBtn('elec-bat2', boeing ? 'STBY PWR' : 'BAT 2', boeing ? '备用电源' : '电瓶 2', 'bat2'),
@@ -896,9 +1342,9 @@
         swBtn('bleed-eng2', 'ENG 2 BLEED', '发动机 2 引气', 'engBleed', 1),
         swBtn('pack2', boeing ? 'PACK R' : 'PACK 2', '空调组件 2', 'pack2')
       ] }
-    ]);
+    ];
     var FP = boeing ? ['L FWD', 'L AFT', 'CTR L', 'CTR R', 'R FWD', 'R AFT'] : ['L TK 1', 'L TK 2', 'CTR TK 1', 'CTR TK 2', 'R TK 1', 'R TK 2'];
-    row(-0.24, [
+    var R3 = [
       { title: 'FUEL', items: FP.map(function (n, i) {
         return swBtn('fuel-' + ['l1', 'l2', 'c1', 'c2', 'r1', 'r2'][i], n, '燃油泵 ' + n, 'pumps', i, false, function () { var s = sys(); return boeing ? !(s.sw.pumps[i] && s.out.ac) : (s.sw.pumps[i] && !s.out.ac); }, 'PUMP');
       }) },
@@ -908,7 +1354,7 @@
         swBtn('hyd-ptu', boeing ? 'ELEC 2 (B)' : 'PTU', boeing ? '液压 电动泵 2' : '动力转换组件 PTU', 'ptu'),
         swBtn('hyd-eng2', boeing ? 'ENG 2 (B)' : 'ENG 2 PUMP', '液压 发动机 2 泵', 'hydEng2', undefined, false, function () { return !engRun(1); })
       ] }
-    ]);
+    ];
     var irPos = boeing ? ['OFF', 'ALIGN', 'NAV', 'ATT'] : ['OFF', 'NAV', 'ATT'];
     var nIr = boeing ? 2 : 3, irItems = [];
     for (var ii = 0; ii < nIr; ii++) (function (i) {
@@ -918,7 +1364,7 @@
       irItems.push(it);
     })(ii);
     irItems.push({ t: 'lamp', w: 0.045, label: 'ON BAT', fn: function () { var s = sys(); return [{ t: 'ON BAT', col: AMB, on: !!(s && s.out.onBat) }]; } });
-    row(-0.125, [
+    var R4 = [
       { title: boeing ? 'IRS' : 'ADIRS', items: irItems },
       { title: 'ANTI ICE', items: [
         swBtn('probe-heat', boeing ? 'PROBE HEAT' : 'PROBE/WINDOW', '探头 / 风挡加温', 'probeHeat', undefined, true),
@@ -926,11 +1372,68 @@
         swBtn('ai-eng1', 'ENG 1', '发动机 1 防冰', 'engAI', 0, true),
         swBtn('ai-eng2', 'ENG 2', '发动机 2 防冰', 'engAI', 1, true)
       ] }
-    ]);
+    ];
+
+
+    /* ---- 1c. 头顶板按机型真实位置排布 (只含冷舱起动所需控件; 其余为同形状空白面板)
+       参考: A320 头顶板照片 (O. Cleynen, Commons) / A350 FFS 驾驶舱 (I. Kousa, Commons) /
+             737NG 头顶板 (Commons "B&W Overhead Panel 737NG") / 787 头顶板 (Commons "United 787 overhead panel KSEA AVGeek")
+       z: 前缘 (风挡) ≈ -0.75 → 后缘 ≈ +0.12; x: 左 - / 右 + */
+    var SEC = {};
+    [R1, R2, R3, R4].forEach(function (r) { r.forEach(function (sec) { SEC[sec.title] = sec; }); });
+    function S(t) { return SEC[t]; }
+    var EXTLT = { title: 'EXT LT', items: ltItems };
+    function blank(z, x, w, title) { var pn = ovhPanel(z, w, 0.10, [[title, 0, 0.040, 0.0085, '#d8dde2']], x); pn.frame(0, -0.004, w - 0.01, 0.085); if (pn.mat.map) pn.mat.map.needsUpdate = true; }
+    var famO = this.L.fam, LAY;
+    if (!boeing) {
+      // 空客: 三列 — 左列 (后→前) ADIRS / FLT CTL / EVAC / EMER ELEC / GPWS / OXY-CALLS;
+      //        中列 (后→前) FIRE / HYD / FUEL / ELEC / AIR COND / ANTI ICE + CABIN PRESS / 前缘 EXT LT + APU + SIGNS; 右列 FLT CTL / CARGO / VENT / ENG
+      LAY = [[0.04, [[-0.27, [S('ADIRS')]]]], [0.04, 'blank', 0.07, 0.24, 'FIRE'],
+        [-0.08, [[0, [S('HYD')]]]], [-0.20, [[0, [S('FUEL')]]]], [-0.32, [[0, [S('ELEC')]]]],
+        [-0.44, [[0, [S('AIR COND')]]]], [-0.56, [[-0.07, [S('ANTI ICE')]]]], [-0.56, 'blank', 0.19, 0.15, 'CABIN PRESS'],
+        [-0.68, [[-0.12, [EXTLT]], [0.21, [S('APU')]], [0.34, [S('SIGNS')]]]]];
+      [[-0.08, 'FLT CTL'], [-0.20, 'EVAC'], [-0.32, 'EMER ELEC PWR'], [-0.44, 'GPWS'], [-0.56, 'OXYGEN / CALLS']].forEach(function (b) { LAY.push([b[0], 'blank', -0.33, 0.12, b[1]]); });
+      [[-0.08, 'FLT CTL'], [-0.20, 'CARGO SMOKE'], [-0.32, 'VENTILATION'], [-0.44, 'ENG MAN START']].forEach(function (b) { LAY.push([b[0], 'blank', 0.33, 0.12, b[1]]); });
+    } else if (famO === 'b737' || famO === 'b737max') {
+      // 737NG/MAX: 左列 FLT CONTROL / FUEL / HYD PUMPS, 中 ELEC (BAT / STBY PWR / GRD PWR) + 安全带, 右 WINDOW HEAT / ANTI-ICE / BLEED AIR / PRESS;
+      //            前缘一排 APU / ENGINE START / 外部灯; 后头顶板 IRS
+      LAY = [[0.06, [[-0.16, [S('IRS')]]]], [0.06, 'blank', 0.18, 0.26, 'AFT OVHD / PSEU'],
+        [-0.16, 'blank', -0.30, 0.16, 'FLT CONTROL'], [-0.16, [[-0.03, [S('ELEC')]]]], [-0.16, 'blank', 0.28, 0.22, 'WINDOW HEAT'],
+        [-0.30, [[-0.215, [S('FUEL')]]]], [-0.30, [[0.235, [S('ANTI ICE')]]]],
+        [-0.44, [[-0.215, [S('HYD')]]]], [-0.44, [[0.215, [S('BLEED AIR')]]]],
+        [-0.56, [[-0.12, [S('SIGNS')]]]], [-0.56, 'blank', 0.20, 0.26, 'PRESSURIZATION'],
+        [-0.68, [[-0.27, [S('APU')]], [-0.07, [S('ENGINE START')]], [0.22, [EXTLT]]]]];
+    } else {
+      // 777 / 787 / E190: 中列 (后→前) ELEC / HYD / FUEL / BLEED / ENG START + APU, 左列 IRS / FLT CTL, 右列 WINDOW HEAT / ANTI-ICE / PRESS, 前缘 外部灯
+      LAY = [[0.04, [[-0.25, [S('IRS')]]]], [0.04, 'blank', 0.20, 0.30, 'EQUIP COOLING / CARGO'],
+        [-0.10, [[-0.10, [S('ELEC')]]]], [-0.10, 'blank', 0.25, 0.22, 'WINDOW HEAT'],
+        [-0.22, [[-0.17, [S('HYD')]]]], [-0.22, [[0.235, [S('ANTI ICE')]]]],
+        [-0.34, [[-0.06, [S('FUEL')]]]], [-0.34, 'blank', 0.34, 0.12, 'PRESS'],
+        [-0.46, [[0.06, [S('BLEED AIR')]]]], [-0.46, 'blank', -0.32, 0.14, 'FLT CTL'],
+        [-0.58, [[-0.20, [S('APU')]], [0.02, [S('ENGINE START')]], [0.24, [S('SIGNS')]]]],
+        [-0.70, [[0, [EXTLT]]]]];
+    }
+    var OLK = famO, OL = OLK && FS.OVERHEAD_LAYOUTS && FS.OVERHEAD_LAYOUTS[OLK];
+    if (OL) {
+      var FN = {};
+      [R1, R2, R3, R4, [EXTLT]].forEach(function (r) { r.forEach(function (sec) { sec.items.forEach(function (it) { if (it.sp && it.sp.id) FN[it.sp.id] = it; else if (it.t === 'lamp') FN['adirs-onbat'] = it; }); }); });
+      this._buildOverheadData(OL, FN, ovhPanel);
+      LAY = [];
+    }
+    LAY.forEach(function (r) {
+      if (r[1] === 'blank') { blank(r[0], r[2], r[3], r[4]); return; }
+      r[1].forEach(function (c) { var secs = c[1].filter(Boolean); if (secs.length) row(r[0], secs, c[0]); });
+    });
 
     /* ---- 2. 操纵台: 发动机主电门 (空客 ENG MASTER / 波音 FUEL CONTROL) + ENG MODE ---- */
+    var PLD = this._pedLayout, FN2 = {}, nCh0 = this.group.children.length, oTg = this._toggle, oRt = this._rotary;
+    if (PLD) {   // 数据布局: 先截获功能控件定义 (不建模), 下面按数据重新摆放
+      this._toggle = function (pn, x, y, sp) { FN2[sp.id] = { t: 'tg', sp: sp }; };
+      this._rotary = function (pn, x, y, sp) { FN2[sp.id] = { t: 'rot', sp: sp }; };
+    }
     var pg = this._pedGeo, pw = pg.pw, pz = pg.qz + pg.qLen / 2 + 0.06;
-    var eng = this._panel({ pos: [0, pg.top + 0.004, pz], rotX: -Math.PI / 2, w: pw * 1.9, h: 0.095,
+    var abNarrow = !boeing && this.L.fam !== 'e190', engW = abNarrow ? 0.20 : pw * 1.9;
+    var eng = this._panel({ pos: [0, pg.top + 0.004, pz], rotX: -Math.PI / 2, w: engW, h: 0.095,
       labels: [[boeing ? 'FUEL CONTROL' : 'ENG MASTER', -0.065, 0.040, 0.0095, '#ffffff']] });
     [0, 1].forEach(function (i) {
       self._toggle(eng, (i === 0 ? -1 : 1) * 0.065, -0.008, {
@@ -958,15 +1461,20 @@
       });
     }
     // 停留刹车 (操纵台右侧)
-    var pbx = Math.min(0.15, pw * 0.95 - 0.03);
-    this._rotary(eng, pbx, -0.006, {
+    var pbx = Math.min(0.15, pw * 0.95 - 0.03), pbPan = eng, pby = -0.006;
+    if (abNarrow) {   // 空客: 停留刹车手柄在操纵台最后部 (方向舵配平旁)
+      pbPan = this._panel({ pos: [-pw * 0.5, pg.top + 0.004, pg.zEnd - 0.055], rotX: -Math.PI / 2, w: pw * 0.8, h: 0.08, labels: [['PARK BRK', 0, 0.03, 0.0095, '#ffffff']] });
+      pbx = 0; pby = -0.008;
+    }
+    this._rotary(pbPan, pbx, pby, {
       id: 'park-brake', label: boeing ? 'PARK BRAKE' : 'PARK BRK', positions: ['OFF', 'ON'], step: 1.2, r: 0.011,
       tip: '停留刹车 (点击 / 滚轮 开关)',
       get: function () { var f = fm(); return f && f.parkingBrake ? 1 : 0; },
       set: function (i) { var f = fm(); if (!f) return; if (!!f.parkingBrake !== !!i) { if (!domClick('park-brake')) f.setParkingBrake(!!i); } }
     });
     var pbLamp = this._lampMat();
-    this._plane(0.022, 0.007, pbLamp, pbx, -0.04, 0.002, 0, 0, 0, eng.g);
+    this._plane(0.022, 0.007, pbLamp, pbx + (abNarrow ? 0.03 : 0), abNarrow ? -0.008 : -0.04, 0.002, 0, 0, 0, pbPan.g);
+    if (pbPan !== eng && pbPan.mat.map) pbPan.mat.map.needsUpdate = true;
     this._regLamp(pbLamp, function () { var f = fm(); return f && f.parkingBrake ? 0xff3020 : 0; });
     if (eng.mat.map) eng.mat.map.needsUpdate = true;
     // ATC / TCAS (简化选择器)
@@ -979,6 +1487,17 @@
       get: function () { var s = sys(); return s ? Math.max(0, ['STBY', 'TA', 'TA/RA'].indexOf(s.sw.tcas)) : 2; },
       set: function (i) { var s = sys(); if (s) { s.set('tcas', ['STBY', 'TA', 'TA/RA'][i]); notify('TCAS ' + s.sw.tcas); } } });
     if (atc.mat.map) atc.mat.map.needsUpdate = true;
+    if (PLD) {
+      this._toggle = oTg; this._rotary = oRt;
+      while (this.group.children.length > nCh0) this.group.remove(this.group.children[this.group.children.length - 1]);   // 丢弃截获阶段的旧面板
+      FN2.wxr = { t: 'pb', sp: { id: 'wxr', tip: '气象雷达 WX (中央操纵台雷达控制板)', get: function () { return lit('nd-weather'); },
+        legend: function () { return [{ t: 'FAULT', col: AMB, on: false }, { t: 'ON', col: GRN, on: lit('nd-weather') }]; },
+        press: function () { domClick('nd-weather'); } } };
+      var zA = pg.qz + pg.qLen / 2, kk = this.L.k;
+      this._buildOverheadData(PLD.panels, FN2, function (zc, w, h, labels, xc) {
+        return self._panel({ pos: [(xc || 0) * kk, pg.top + 0.004, zA + zc * kk], rotX: -Math.PI / 2, w: w, h: h, labels: labels });
+      });
+    }
 
     /* ---- 3. 主仪表板中央 (下显示器右侧): 自动刹车旋钮 ---- */
     var pd = this._panelDims, du = this.L.du;
@@ -1093,31 +1612,13 @@
     }
   };
   P._drawOverhead = function (c) {
-    var g = c.getContext('2d'), W = c.width, H = c.height;
+    // 顶板底板: 纯哑光面板色 + 细噪点 (具体面板由三维开关面板 / 空白面板按真实位置摆放)
+    var g = c.getContext('2d'), W = c.width, H = c.height, r = 5;
     g.fillStyle = hex(this.pal.panel); g.fillRect(0, 0, W, H);
-    var names = ['ADIRS', 'FLT CTL', 'EVAC', 'EMER ELEC', 'GPWS', 'RCDR', 'OXYGEN', 'CALLS',
-      'FIRE', 'HYD', 'FUEL', 'ELEC', 'AIR COND', 'ANTI ICE', 'CABIN PRESS', 'EXT LT', 'APU', 'SIGNS', 'INT LT', 'WIPER'];
-    var cols = 4, rows = 5, cw = W / cols, ch = H / rows, r = 11;
-    for (var i = 0; i < names.length; i++) {
-      var cx = (i % cols) * cw, cy = Math.floor(i / cols) * ch;
-      g.fillStyle = 'rgba(0,0,0,0.09)'; g.fillRect(cx + 8, cy + 8, cw - 16, ch - 16);
-      g.strokeStyle = 'rgba(255,255,255,0.65)'; g.lineWidth = 2; g.strokeRect(cx + 8, cy + 8, cw - 16, ch - 16);
-      g.fillStyle = 'rgba(255,255,255,0.9)'; g.font = 'bold 18px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'top';
-      g.fillText(names[i], cx + cw / 2, cy + 14);
-      for (var b = 0; b < 6; b++) {
-        r = (r * 16807) % 2147483647;
-        var bx = cx + 22 + (b % 3) * ((cw - 44) / 3), by = cy + 48 + Math.floor(b / 3) * 64;
-        if (r % 3 === 0) {
-          g.fillStyle = '#2a2d31'; g.beginPath(); g.arc(bx + 26, by + 22, 15, 0, 7); g.fill();
-          g.fillStyle = '#e7e7e2'; g.fillRect(bx + 24, by + 6, 4, 14);
-        } else {
-          g.fillStyle = '#1b1d20'; g.fillRect(bx + 4, by + 2, 48, 40);
-          g.fillStyle = r % 7 === 0 ? '#e9b53a' : '#3a3d42'; g.fillRect(bx + 8, by + 6, 40, 14);
-          g.fillStyle = '#3a3d42'; g.fillRect(bx + 8, by + 24, 40, 14);
-        }
-      }
-    }
+    for (var i = 0; i < 5000; i++) { r = (r * 16807) % 2147483647; g.fillStyle = 'rgba(0,0,0,' + (0.03 + (r % 5) * 0.01) + ')'; g.fillRect(r % W, (r >> 8) % H, 2, 2); }
+    g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 3; g.strokeRect(2, 2, W - 4, H - 4);
   };
+
 
   /* =====================================================================
      FCU / MCP 与 EFIS (按需重绘, 带点击区域)
@@ -1139,6 +1640,8 @@
   P._drawFCU = function (v) {
     var c = this.fcuCanvas, g = c.getContext('2d'), W = c.width, H = c.height, rects = [], self = this;
     var boeing = this.L.maker === 'boeing';
+    var img = this._abFCU && this._abImg('fcu');
+    if (this._abFCU) return this._drawFCUPhoto(v, g, W, H, img);
     g.fillStyle = boeing ? '#4d5257' : '#56636f'; g.fillRect(0, 0, W, H);
     g.textAlign = 'center'; g.textBaseline = 'middle';
     function label(t, x, y, size) { g.fillStyle = '#e8ebee'; g.font = 'bold ' + (size || 13) + 'px sans-serif'; g.fillText(t, x, y); }
@@ -1204,6 +1707,34 @@
     void self;
   };
 
+  /* Airbus FCU: 实拍底图 + 动态窗口/指示灯, 热区与照片中旋钮/按钮对齐 */
+  P._drawFCUPhoto = function (v, g, W, H, img) {
+    var rects = [];
+    if (img) g.drawImage(img, 0, 0, W, H); else { g.fillStyle = '#3a4550'; g.fillRect(0, 0, W, H); }
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#07090a'; g.fillRect(88, 22, 850, 58);
+    g.fillStyle = '#ff9d2e'; g.font = 'bold 40px monospace';
+    g.fillText(String(v.spd), 160, 52); g.fillText(String(v.hdg), 312, 52); g.fillText(String(v.alt), 690, 52); g.fillText(String(v.vs), 880, 52);
+    g.font = 'bold 15px monospace'; g.fillText(v.mach ? 'MACH' : 'SPD', 105, 34); g.fillText('HDG', 262, 34); g.fillText('ALT', 640, 34); g.fillText('V/S', 830, 34);
+    function knob(cx, id) {
+      rects.push({ x: cx - 90, y: 120, w: 60, h: 140, act: { knob: id, dir: -1 } });
+      rects.push({ x: cx + 30, y: 120, w: 60, h: 140, act: { knob: id, dir: 1 } });
+      rects.push({ x: cx - 30, y: 120, w: 60, h: 70, act: { click: 'fcu-' + id + '-push' } });
+      rects.push({ x: cx - 30, y: 190, w: 60, h: 70, act: { click: 'fcu-' + id + '-pull' } });
+    }
+    knob(155, 'spd'); knob(312, 'hdg'); knob(690, 'alt'); knob(895, 'vs');
+    function btn(x, y, w, h, on, id) {
+      if (on) { g.fillStyle = '#3dff6a'; g.fillRect(x + w / 2 - 16, y + 6, 32, 6); }
+      rects.push({ x: x, y: y, w: w, h: h, act: { click: id } });
+    }
+    btn(430, 168, 75, 62, v.ap1, 'fcu-ap1'); btn(522, 168, 75, 62, v.ap2, 'fcu-ap2');
+    btn(478, 258, 70, 58, v.athr, 'fcu-athr'); btn(278, 275, 68, 50, v.loc, 'fcu-loc');
+    btn(656, 275, 68, 50, v.pitch === 'FLCH', 'fcu-exped'); btn(860, 275, 70, 50, v.appr, 'fcu-appr');
+    btn(14, 108, 70, 70, v.mach, 'fcu-spd-mach');
+    this.fcuMesh.userData.rects = rects;
+    this.fcuTex.needsUpdate = true;
+  };
+
   P._efisValues = function () {
     var sim = this.sim || {}, p = sim.pfdL || {}, n = sim.ndL || {};
     var ap = (sim.ap && sim.ap.ap) || {};
@@ -1213,6 +1744,35 @@
   P._drawEFIS = function (v) {
     var c = this.efisCanvas, g = c.getContext('2d'), W = c.width, H = c.height, rects = [];
     var boeing = this.L.maker === 'boeing';
+    if (this._abFCU) {
+      var self = this;
+      // 照片中各元件位置 (像素): 左 = 机长 EFIS, 右 = 副驾 EFIS (镜像布局)
+      var LAY = {
+        L: { cv: this.efisCanvas, tex: this.efisTex, img: 'efisL', win: [62, 50, 104, 40], knob: [113, 165], fd: [62, 218], ls: [124, 218], mode: [262, 150], rng: [430, 150] },
+        R: { cv: this.efisCanvasR, tex: this.efisTexR, img: 'efisR', win: [352, 55, 104, 40], knob: [410, 175], fd: [408, 224], ls: [345, 224], mode: [250, 150], rng: [80, 150] }
+      };
+      ['L', 'R'].forEach(function (sd) {
+        var Q = LAY[sd], cv = Q.cv, gg = cv.getContext('2d'), rr = [], im = self._abImg(Q.img);
+        if (im) gg.drawImage(im, 0, 0, cv.width, cv.height); else { gg.fillStyle = '#3a4550'; gg.fillRect(0, 0, cv.width, cv.height); }
+        gg.textAlign = 'center'; gg.textBaseline = 'middle';
+        var w0 = Q.win;
+        gg.fillStyle = '#07090a'; gg.fillRect(w0[0], w0[1], w0[2], w0[3]);
+        gg.fillStyle = '#ff9d2e'; gg.font = 'bold 28px monospace'; gg.fillText(v.std ? 'Std' : String(v.baro), w0[0] + w0[2] / 2, w0[1] + w0[3] / 2 + 1);
+        rr.push({ x: w0[0], y: w0[1], w: w0[2], h: w0[3], act: { click: 'baro-std' } });
+        rr.push({ x: Q.knob[0] - 44, y: Q.knob[1] - 40, w: 44, h: 80, act: { click: 'baro-dec' } });
+        rr.push({ x: Q.knob[0], y: Q.knob[1] - 40, w: 44, h: 80, act: { click: 'baro-inc' } });
+        if (v.fd) { gg.fillStyle = '#3dff6a'; gg.fillRect(Q.fd[0] + 14, Q.fd[1] + 5, 28, 5); }
+        rr.push({ x: Q.fd[0], y: Q.fd[1], w: 56, h: 40, act: { click: 'efis-fd' } });
+        gg.fillStyle = '#3fd7ff'; gg.font = 'bold 15px monospace';
+        gg.fillText(v.mode, Q.mode[0], Q.mode[1] + 55); gg.fillText(String(v.range), Q.rng[0], Q.rng[1] + 55);
+        rr.push({ x: Q.mode[0] - 47, y: Q.mode[1] - 47, w: 95, h: 95, act: { click: 'nd-mode' } });
+        rr.push({ x: Q.rng[0] - 50, y: Q.rng[1] - 47, w: 50, h: 95, act: { click: 'nd-range-down' } });
+        rr.push({ x: Q.rng[0], y: Q.rng[1] - 47, w: 50, h: 95, act: { click: 'nd-range-up' } });
+        self.efisMeshes.forEach(function (m) { if (m.userData.canvas === cv) m.userData.rects = rr; });
+        Q.tex.needsUpdate = true;
+      });
+      return;
+    }
     g.fillStyle = boeing ? '#4d5257' : '#56636f'; g.fillRect(0, 0, W, H);
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = '#e8ebee'; g.font = 'bold 13px sans-serif'; g.fillText(boeing ? 'BARO' : 'QNH', 75, 12);
@@ -1314,6 +1874,9 @@
         m.color.copy(m.userData.base).multiplyScalar(b);
       });
     }
+    // 电源: 断电时整块仪表板黑屏
+    var powered = !!(st && st.electricalPower);
+    this._setDark(!powered);
     // 操纵机构
     this._updateControls(dt, st);
     this._updateSwitches(dt);
@@ -1327,23 +1890,51 @@
     this._ctlT += dt;
     if (this._ctlT >= 0.1 || !this._sig.fcu) {
       this._ctlT = 0;
-      var fv = this._fcuValues(), fs = JSON.stringify(fv);
-      if (fs !== this._sig.fcu) { this._sig.fcu = fs; this._drawFCU(fv); }
-      var ev = this._efisValues(), es = JSON.stringify(ev);
-      if (es !== this._sig.efis) { this._sig.efis = es; this._drawEFIS(ev); }
-      // 主警告 / 主警戒 / 起落架灯
-      var mw = !!(st.masterWarning || st.stallWarning || st.stickShaker), mc = !!st.masterCaution;
-      var blink = mw && (Math.floor(Date.now() / 400) % 2 === 0);
-      this.mwMat.color.setHex(mw ? (blink ? 0xff2a1a : 0x9a1408) : 0x3a0806);
-      this.mcMat.color.setHex(mc ? 0xffb000 : 0x3a2a04);
-      var gp = st.gearPos, gc = gp > 0.99 ? 0x2bff5a : (gp > 0.01 ? 0xff3020 : 0x0c2610);
-      this.gearLights.forEach(function (m) { m.color.setHex(gc); });
+      if (!powered) {
+        // 断电: 指示灯全灭 (FCU/EFIS 面板已在 _setDark 中变暗)
+        this.mwMat.color.setHex(0x3a0806);
+        this.mcMat.color.setHex(0x3a2a04);
+        this.gearLights.forEach(function (m) { m.color.setHex(0x0c2610); });
+      } else {
+        var fv = this._fcuValues(), fs = JSON.stringify(fv);
+        if (fs !== this._sig.fcu) { this._sig.fcu = fs; this._drawFCU(fv); }
+        var ev = this._efisValues(), es = JSON.stringify(ev);
+        if (es !== this._sig.efis) { this._sig.efis = es; this._drawEFIS(ev); }
+        // 主警告 / 主警戒 / 起落架灯
+        var mw = !!(st.masterWarning || st.stallWarning || st.stickShaker), mc = !!st.masterCaution;
+        var blink = mw && (Math.floor(Date.now() / 400) % 2 === 0);
+        this.mwMat.color.setHex(mw ? (blink ? 0xff2a1a : 0x9a1408) : 0x3a0806);
+        this.mcMat.color.setHex(mc ? 0xffb000 : 0x3a2a04);
+        var gp = st.gearPos, gc = gp > 0.99 ? 0x2bff5a : (gp > 0.01 ? 0xff3020 : 0x0c2610);
+        this.gearLights.forEach(function (m) { m.color.setHex(gc); });
+      }
     }
+  };
+
+  /* 断电黑屏: 把 显示器/FCU/EFIS 画布涂黑; 恢复供电时强制重绘 */
+  P._setDark = function (on) {
+    on = !!on;
+    if (on === !!this._dark) return;
+    this._dark = on;
+    var self = this, dark = '#050607';
+    ['pfd', 'nd', 'upper', 'lower'].forEach(function (k) {
+      var c = self.dispCanvas[k], g = c.getContext('2d');
+      g.fillStyle = dark; g.fillRect(0, 0, c.width, c.height);
+      self.dispTex[k].needsUpdate = true;
+    });
+    [this.fcuCanvas, this.efisCanvas].forEach(function (c) {
+      if (!c) return;
+      var g = c.getContext('2d'); g.fillStyle = dark; g.fillRect(0, 0, c.width, c.height);
+    });
+    if (this.fcuTex) this.fcuTex.needsUpdate = true;
+    if (this.efisTex) this.efisTex.needsUpdate = true;
+    if (!on) { this._sig.fcu = null; this._sig.efis = null; }   // 恢复供电 -> 重新绘制
   };
 
   P._renderDisplays = function (st, data) {
     var sim = this.sim, D = FS.Displays, t0 = (global.performance && global.performance.now()) || 0;
     if (!D) return;
+    if (this._dark) return;                 // 断电黑屏: 不绘制仪表
     if (!this.pfd) {
       this.pfd = new D.PFD(this.dispCanvas.pfd, { side: 'L' });
       this.nd = new D.ND(this.dispCanvas.nd, {});
@@ -1427,6 +2018,7 @@
       var ang = rev > 0.05 ? -14 - 22 * rev : -14 + 40 * thr;
       this.thrLevers[i].rotation.x = -ang * DEG;
     }
+    if (this.trimWheels && this.trimWheels.length) { var tr = (fm.surfaces && fm.surfaces.elevatorTrim) || 0; this.trimWheels.forEach(function (w) { w.rotation.x = tr * 12; }); }
     var nf = (fm.ac && fm.ac.flaps && fm.ac.flaps.length) || 2;
     var fi = fm.flapDetentIndex !== undefined ? fm.flapDetentIndex : 0;
     this.flapLever.rotation.x = -(16 - 38 * (fi / Math.max(1, nf - 1))) * DEG;

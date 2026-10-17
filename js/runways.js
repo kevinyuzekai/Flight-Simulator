@@ -172,6 +172,91 @@
     });
   }
 
+  /**
+   * 跑道/进近灯光系统 (beta 0.4.2)
+   * · 边灯 (白/末段黄) · 中线灯 (白, 末 900 m 红白交替) · 入口灯 (绿) / 末端灯 (红)
+   * · PAPI 下滑指示灯 · 简易进近灯排 (ALS) + REIL 顺序闪光
+   * 全部用 InstancedMesh 按颜色合并, 每座机场新增 draw call 极少。
+   */
+  function buildRunwayLights(THREE, R, hf, group, mats) {
+    var a = R.a, b = R.b, d = R.d, rr = { x: -d.z, z: d.x }, L = R.L, wM = R.w;
+    var ents = [];
+    function add(x, z, col, y0) {
+      ents.push([x, hf(x, z) + (y0 || 0.10), z, col]);
+    }
+    var WHITE = 0xf6f6ea, AMBER = 0xffc24a, RED = 0xff4030, GREEN = 0x38e06a;
+    var amberFrom = L - 600;
+    // 边灯: 两侧, 间距 60 m
+    for (var s = 30; s <= L - 15; s += 60) {
+      for (var sd = -1; sd <= 1; sd += 2) {
+        var l = sd * (wM / 2 + 1.0);
+        add(a.x + d.x * s + rr.x * l, a.z + d.z * s + rr.z * l, s >= amberFrom ? AMBER : WHITE);
+      }
+    }
+    // 中线灯: 间距 30 m; 末 900 m 红白交替
+    for (var s2 = 30; s2 <= L - 15; s2 += 30) {
+      var c2 = (s2 >= L - 900 && ((s2 / 30) | 0) % 2 === 0) ? RED : WHITE;
+      add(a.x + d.x * s2, a.z + d.z * s2, c2);
+    }
+    // 入口灯 (a 端, 绿色横排) / 末端灯 (b 端, 红色横排)
+    var nTh = Math.max(4, Math.round(wM / 6));
+    for (var t = 0; t <= nTh; t++) {
+      var lo = (t / nTh - 0.5) * wM * 0.92;
+      add(a.x + rr.x * lo, a.z + rr.z * lo, GREEN, 0.12);
+      add(b.x - rr.x * lo, b.z - rr.z * lo, RED, 0.12);
+    }
+    // PAPI: a 端左侧 4 灯 (2 红 2 白示意下滑道)
+    var papiL = -(wM / 2 + 16);
+    for (var p = 0; p < 4; p++) {
+      var ps = 280 + p * 9;
+      var pc = p < 2 ? 0xff4030 : 0xf6f6ea;
+      add(a.x + d.x * ps + rr.x * papiL, a.z + d.z * ps + rr.z * papiL, pc, 0.55);
+    }
+    // 进近灯排 (ALS): 由入口向前延伸 780 m, 每 30 m 一组横排灯 + 横排
+    for (var q = 30; q <= 780; q += 30) {
+      var bs = -q;                              // 入口之前
+      var isBar = (q % 90 === 0);
+      var halfN = isBar ? 5 : 1;
+      for (var bi = -halfN; bi <= halfN; bi += 2) {
+        var bl = bi * 1.4;
+        add(a.x + d.x * bs + rr.x * bl, a.z + d.z * bs + rr.z * bl, WHITE, 0.10);
+      }
+    }
+    // REIL: 入口两侧的顺序闪光灯
+    for (var re = -1; re <= 1; re += 2) {
+      add(a.x + rr.x * re * (wM / 2 + 3), a.z + rr.z * re * (wM / 2 + 3), 0xffffff, 0.35);
+    }
+
+    var byCol = {};
+    ents.forEach(function (e) { (byCol[e[3]] = byCol[e[3]] || []).push(e); });
+    var geo = new THREE.SphereGeometry(0.42, 6, 4);
+    var m4 = new THREE.Matrix4();
+    Object.keys(byCol).forEach(function (ck) {
+      var arr = byCol[ck];
+      var m = new THREE.MeshBasicMaterial({ color: parseInt(ck, 10), toneMapped: false });
+      var im = new THREE.InstancedMesh(geo, m, arr.length);
+      for (var i = 0; i < arr.length; i++) {
+        m4.makeTranslation(arr[i][0], arr[i][1], arr[i][2]);
+        im.setMatrixAt(i, m4);
+      }
+      im.instanceMatrix.needsUpdate = true;
+      im.name = 'rwyLights';
+      group.add(im);
+      mats.push(m);
+    });
+    // PAPI 支架
+    var pg = new THREE.BoxGeometry(0.4, 1.1, 0.4);
+    var pm = new THREE.MeshStandardMaterial({ color: 0x3a3f45, roughness: 0.7, metalness: 0.3 });
+    mats.push(pm);
+    for (var p2 = 0; p2 < 4; p2++) {
+      var ps2 = 280 + p2 * 9;
+      var px = a.x + d.x * ps2 + rr.x * papiL, pz = a.z + d.z * ps2 + rr.z * papiL;
+      var post = new THREE.Mesh(pg, pm);
+      post.position.set(px, hf(px, pz) + 0.55, pz);
+      group.add(post);
+    }
+  }
+
   /** 建一座机场的全部跑道道面 (先调用 addFlatten), 返回 THREE.Group */
   function buildAirport(THREE, env, airport) {
     var group = new THREE.Group();
@@ -196,6 +281,8 @@
         me.name = 'rwyEnd:' + id; me.receiveShadow = true;
         group.add(me); mats.push(m);
       });
+      // 跑道灯光 (边灯/中线灯/入口灯/PAPI/进近灯排)
+      try { buildRunwayLights(THREE, R, h, group, mats); } catch (e) { /* 忽略 */ }
     });
     group.userData.dispose = function () {
       group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });

@@ -90,6 +90,8 @@
     this.panelView = on === undefined ? !this.panelView : !!on;
     this.headYawTarget = this.panelView ? -0.10 : 0;
     this.headPitchTarget = this.panelView ? -0.36 : 0;
+    // 预设视角: 直接切换 (低帧率时也立即生效), 不做缓动
+    this.headYaw = this.headYawTarget; this.headPitch = this.headPitchTarget; this._fovSnap = true;
     return this.panelView;
   };
 
@@ -125,7 +127,8 @@
     var this_ref = this;
 
     // 驾驶舱 (机长/副驾) —— three 模型坐标: -Z 为机头
-    var eyeZ = noseZ + (d.noseLength || 8) + 2.4;
+    // eyeOffset: 眼位距机头的距离 (真实外形模型按风挡位置实测); 缺省沿用 机头段长+2.4
+    var eyeZ = noseZ + (d.eyeOffset !== undefined ? d.eyeOffset : ((d.noseLength || 8) + 2.4));
     var eyeY = (d.fuselageRadius || 2) * 0.34;
     mkAnchor('cockpitL', -(d.fuselageRadius || 2) * 0.22, eyeY, eyeZ, 0, 0);
     mkAnchor('cockpitR', (d.fuselageRadius || 2) * 0.22, eyeY, eyeZ, 0, 0);
@@ -133,10 +136,12 @@
     this.anchors.cockpitL.rotation.x = -0.06;
     this.anchors.cockpitR.rotation.x = -0.06;
 
-    // 客舱舷窗 (机翼前方几排)
-    var cabinZ = noseZ + d.length * 0.42;
-    mkAnchor('cabin', -(d.fuselageRadius || 2) * 0.92, eyeY + 0.35, cabinZ, 0, 0);
-    mkAnchor('cabinR', (d.fuselageRadius || 2) * 0.92, eyeY + 0.35, cabinZ, 0, 0);
+    // 客舱 (走道内, 面朝机头, 可见座椅/行李架/舷窗 → 三维客舱 cabin3d)
+    var R2 = d.fuselageRadius || 2;
+    var cabinZ = noseZ + d.length * 0.30;
+    var cabinEyeY = -R2 * 0.72 + 1.18;
+    mkAnchor('cabin', 0, cabinEyeY, cabinZ, 0, 0);
+    mkAnchor('cabinR', 0.12, cabinEyeY, cabinZ - 0.02, 0, 0);
 
     // 机翼视角 (舷窗向外看机翼)
     mkAnchor('wing', -(d.fuselageRadius || 2) * 0.98, eyeY + 0.1, noseZ + d.length * 0.40, 0, 0.55);
@@ -422,7 +427,8 @@
       targetFov = this.panelView && this.use3d ? fov : fov + U.clamp(st.mach * 6, 0, 6) + U.clamp(Math.abs(st.gLoad - 1) * 3, 0, 5);
       if (!this.isInterior()) targetFov += U.clamp(st.gsKt / 40, 0, 12);
     }
-    this.fov = U.damp(this.fov, targetFov, this.use3d && this.isCockpit() ? 0.18 : 0.35, dt);
+    if (this._fovSnap) { this.fov = targetFov; this._fovSnap = false; }
+    this.fov = U.damp(this.fov, targetFov, this.use3d && this.isCockpit() ? (this.panelView ? 0.06 : 0.18) : 0.35, dt);
     // 三维驾驶舱: 近裁剪面缩到 5 cm (对数深度缓冲, 不影响远处精度), 否则侧杆 / 遮光板会被裁掉
     var wantNear = (this.use3d && this.isCockpit()) ? 0.05 : 0.4;
     if (Math.abs(cam.fov - this.fov) > 0.01 || cam.near !== wantNear) {

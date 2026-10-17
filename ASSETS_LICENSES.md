@@ -1,6 +1,6 @@
 # 资源许可 / Asset Licenses
 
-本文件列出 **天际航线 SkyRoute beta 0.4 / 0.4.1 / 0.4.2**（原名“飞行模拟器”；0.4.1 为摇杆热修复、0.4.2 为三维驾驶舱可点击控件，第三方资源与 0.4 相同）中使用的全部第三方资源、其作者、许可证以及所做的修改。
+本文件列出 **天际航线 SkyRoute beta 0.4 / 0.4.1**（原名“飞行模拟器”；0.4.1 为摇杆热修复，第三方资源与 0.4 相同）中使用的全部第三方资源、其作者、许可证以及所做的修改。
 游戏内也可以在主菜单点击 **「致谢 / 许可」** 查看同样的信息（联网地景开启时，点击画面右下角的署名条也会打开该面板）。
 
 > 代码许可：v0.1 发布包与本仓库目前**都没有附带代码许可证文件**。下面只说明第三方资源的许可，
@@ -57,53 +57,36 @@
 
 ---
 
-## 1.5 beta 0.4 新增的真实机型模型 —— Sketchfab 作者发布的 CC BY 4.0 模型（经 Objaverse 获取）
+## 1.5 中性涂装 + 模型自带起落架的机型
 
-以下三个模型由各自作者在 Sketchfab 上以 **CC BY 4.0（Creative Commons Attribution）** 发布。我们通过 Allen Institute for AI 的
-[Objaverse 数据集](https://huggingface.co/datasets/allenai/objaverse)（按每个对象原始的许可证再分发）下载了 GLB 文件；
-许可证以 Sketchfab 页面和 Objaverse 元数据中标注的 “CC Attribution” 为准（2026-10-05 通过 Sketchfab 公开 API 复核，三个模型当前仍标注为 CC Attribution、允许下载）。
+Sketchfab 作者以 **CC BY 4.0** 发布的模型（经 [Objaverse](https://huggingface.co/datasets/allenai/objaverse) 获取）。原用户提供的 A330-300（CGTrader “A330-300 Delta”）与 A320ceo（卡塔尔航空涂装）模型已移除。
 
-| 游戏机型 | 源模型（Sketchfab） | 作者 | 许可证 | 原始面数 |
+| 游戏机型 | 源模型 | 作者 | 许可证 | 起落架 |
 |---|---|---|---|---|
-| A330-300 | ["Airbus A330"](https://sketchfab.com/3d-models/b474aa79c03148f78f607ce816839824) | Andre11230 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 106,460 |
-| B737-MAX8 | ["737 Max-8 (Free)"](https://sketchfab.com/3d-models/197ae72ceb5441efa91b8bdc2ee37050) | AMGP3D | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 42,264 |
-| B777-300ER | ["Boeing 777- 300ER"](https://sketchfab.com/3d-models/cfe500ad3fb14b9ba950dd5403f57ec1) | Adam.White | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 236,444 |
+| A320ceo / A320neo | ["Airbus A320"](https://sketchfab.com/3d-models/790a19f65d5646539ed975c96fedb313)（A320neo 为同一模型按尺寸缩放） | Andre11230 | CC BY 4.0 | 模型自带 |
+| A321neo | ["airbus a321"](https://sketchfab.com/3d-models/542713418c7f47ce9c71d3d0b23921e3)（原韩亚涂装已去除） | 1883 | CC BY 4.0 | 模型自带 |
+| B737-800 / B737-MAX8 | ["737 Max-8 (Free)"](https://sketchfab.com/3d-models/197ae72ceb5441efa91b8bdc2ee37050)（737-800 为同一模型按尺寸缩放） | AMGP3D | CC BY 4.0 | 模型自带 |
+| B777-300ER | ["Boeing 777- 300ER"](https://sketchfab.com/3d-models/cfe500ad3fb14b9ba950dd5403f57ec1) | Adam.White | CC BY 4.0 | 模型自带 |
+| A330-300 | ["Airbus A330"](https://sketchfab.com/3d-models/b474aa79c03148f78f607ce816839824) | Andre11230 | CC BY 4.0 | 程序化（源模型无起落架） |
+| C919 / E190 | SkyRoute 项目自制（blender_bot 在 Blender 中程序化建模，源文件 `assets_src/blender/`） | blender_bot | 项目自有 | 模型自带 |
 
-三个源模型都是**白色、无航空公司涂装**的模型（作者描述分别为自行建模的 A330、“Detailed Boeing 737 Max-8 3D Model Free”、
-“a blank white Boeing 777-300ER … Made with Maya / Substance Painter”）。
+修改（CC BY 4.0 要求注明）：自动朝向、按游戏机型尺寸缩放、网格简化；丢弃源材质与贴图，改为中性白色自绘底图，机身/垂尾/外翼上的航司字样与标志一律重涂；
+保留模型自带起落架（拆分为前起/左主起/右主起，按游戏地面高度微调后收放）；以 base64 内嵌到 `models/ac_*.js` / `tex_*.js`。
+A350-900 / A350-1000 / B787-9 仍为第 1 节 amvlab 无标志模型（程序化起落架）。
 
-**所做的修改**（由仓库内 `tools/model-build/build_models_v04.mjs` 自动完成）：
+### 1.6 驾驶舱
 
-1. 坐标转换与自动朝向（机头 −Z、上 +Y、右翼 +X）。
-2. **去除起落架**（按材质与“机身下方、不与机身相连的小部件”判定），游戏继续使用程序化起落架、舱门与灯光，保证接地点与飞行动力学一致。
-3. **网格简化**：用 meshoptimizer 简化到约 1.8 万三角面，并按 38° 折角重新计算法线。
-4. **按机型尺寸缩放**：机身直径、翼展、全长分别对齐 `config.js` 中的机型参数，机头对齐原程序化模型位置。
-5. **重新贴图**：丢弃源模型的材质与贴图（777 源贴图带有颜色瑕疵），重新生成 UV，由脚本**自绘**中性白色底图（舷窗、舱门轮廓、风挡、蒙皮接缝）和涂装遮罩（垂尾 / 腰线 / 机腹），游戏按菜单所选的中性涂装着色。**没有任何航空公司或制造商的标志、文字或注册号。**
-6. 737 MAX 的风扇叶片拆成独立部件，随 N1 转动；A330 / 777 的风扇为静态。舵面、襟翼、反推等在真实模型上为静态。
-7. 以 base64 内嵌到 `models/ac_a330_300.js`、`ac_b737_max8.js`、`ac_b777_300er.js` 与 `tex_a330.js`、`tex_b737max.js`、`tex_b777.js`，离线 / `file://` 可用。
-
-**署名**：
-
-> "Airbus A330" by Andre11230 (https://sketchfab.com/3d-models/b474aa79c03148f78f607ce816839824),
-> "737 Max-8 (Free)" by AMGP3D (https://sketchfab.com/3d-models/197ae72ceb5441efa91b8bdc2ee37050),
-> "Boeing 777- 300ER" by Adam.White (https://sketchfab.com/3d-models/cfe500ad3fb14b9ba950dd5403f57ec1),
-> all licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), obtained via the Objaverse dataset.
-> Modified by the SkyRoute (Flight-Simulator) project: landing gear removed, decimated, rescaled, re-UV-mapped and repainted to a neutral livery, embedded as JavaScript.
-
-**需要注意**：和 amvlab 模型一样，我们只能依据作者在 Sketchfab 上的许可声明使用，**无法独立核实模型是否完全由作者原创**。
-如日后发现来源问题，删除 `index.html` 中对应的 `<script>` 标签即可退回程序化模型（或在地址后加 `?procedural=1`）。
-
----
+各机型驾驶舱为本项目程序化几何体：空客侧杆 + ECAM、波音驾驶盘 + EICAS，并按系列区分配色、显示器形状（A350 / 787 / C919 / 737 MAX 宽屏）、787 HUD 组合镜、
+737 MAX / 787 / E190 无下中央屏。未使用外部驾驶舱模型（检索到的 Sketchfab 候选未采用）。
 
 ## 2. 仍使用程序化模型的机型（beta 0.4）
 
 | 机型 | 原因 |
 |---|---|
-| C919 | 没有找到许可证允许商用再分发（CC0 / CC BY）且质量可用的模型；继续程序化，不用其他机型冒充 |
-| E190 | 同上（Objaverse / Sketchfab 中检索到的 “E190” 结果不是该机型或许可证不合适） |
+| （无） | C919 / E190 已改用项目自制模型，见 1.5 |
 
 beta 0.3.2 中 B737-MAX8 借用 737-800 外形（「真实模型 · 近似」）的做法在 0.4 中取消，改用上面的独立 737 MAX 8 模型；
-A330-300 与 B777-300ER 也从程序化模型换成了独立模型。
+B777-300ER 也从程序化模型换成了独立模型；各机型来源见 1.5。
 
 排查过但没有采用的来源：FlightGear 及其衍生的 fr24 3D 模型（GPL v2，许可证不兼容本项目的发布方式）、Poly Pizza / OpenGameArt（只有通用的低多边形飞机）、NASA / Smithsonian 3D（没有这些机型）、Stratosphere Studios 777（CC BY-NC-SA，禁止商用）、Sketchfab 上带航空公司涂装或疑似从游戏中提取的模型（未采用）。
 
@@ -124,7 +107,7 @@ A330-300 与 B777-300ER 也从程序化模型换成了独立模型。
 beta 0.3.1 的**三维驾驶舱**（`js/cockpit3d.js`：风挡框、遮光板、FCU / MCP、主仪表板、操纵台、侧杆 / 驾驶盘、头顶板、座椅及其 Canvas 贴图）
 同样是本项目原创的程序化几何体与代码绘制贴图，不使用任何外部模型、照片或厂商标志；布局只参考公开的一般驾驶舱布置（显示器尺寸、各部件的大致位置）。
 
-**beta 0.3 起**：涂装菜单只使用中性的通用名称（如「经典白」「深海蓝」「日落橙」「森林绿」等，旧存档中的航空公司名称会自动映射到对应的中性涂装），
+**涂装菜单只使用中性的通用名称**（之前加入的航司涂装与垂尾标志已移除）（如「经典白」「深海蓝」「日落橙」「森林绿」等，旧存档中的航空公司名称会自动映射到对应的中性涂装），
 配色方案不模仿任何真实航空公司，不包含任何标志、文字或商标图形；TCAS / 空中交通的呼号全部为虚构代码
 （NIMB、ZEFR、AURA、KITE、LUMO、ORCA、PIKA、SOLA、TERN、VELA、WREN、YUKI），与真实航空公司 ICAO 代码无关。
 
@@ -211,3 +194,9 @@ beta 0.3.1 的**三维驾驶舱**（`js/cockpit3d.js`：风挡框、遮光板、
 仍作为没有 OSM 数据时的后备。联网地景开启时，对没有内置数据的机场仍会尝试在线请求 Overpass API 补充滑行道（失败时静默回退）。
 
 评估过但未嵌入分发的资源：3dassets.dev「Airport Terminal and Ground Operations」套件（CC0，偏卡通风格，与卫星地景风格不一致，故未采用）。
+
+#### Airbus 驾驶舱面板实拍贴图 (`models/tex_cockpit_airbus.js`)
+用于 A320 系列 / A330 / A350 / C919 的 FCU 与 EFIS 控制板贴图 (顶板为程序绘制 + 三维开关)（已裁剪、调亮；画面中无航司标志）。动态数值窗口和指示灯由程序叠加绘制。
+| 用途 | 原图 | 作者 | 许可 |
+|---|---|---|---|
+| FCU + EFIS 控制板 | [A340 FCU.jpg](https://commons.wikimedia.org/wiki/File:A340_FCU.jpg) | Kiko Alario Salom | CC BY 2.0 |

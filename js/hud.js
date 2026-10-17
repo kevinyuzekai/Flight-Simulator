@@ -41,7 +41,7 @@
     };
     this.selected = {
       aircraft: FS.CFG.defaultAircraft,
-      livery: FS.LIVERIES[0].id,
+      livery: (FS.AIRCRAFT_DB[FS.CFG.defaultAircraft] && FS.AIRCRAFT_DB[FS.CFG.defaultAircraft].defaultLivery) || 'classic-white',
       depIcao: 'ZSPD',
       arrIcao: 'ZBAA',
       runwayIdent: null,
@@ -113,6 +113,11 @@
           })();
         card.addEventListener('click', function () {
           self.selected.aircraft = ac.key;
+          // 该机型若指定了默认 (中性) 涂装, 选机时同步切换涂装
+          if (ac.defaultLivery) {
+            self.selected.livery = ac.defaultLivery;
+            var lsel = $('livery-select'); if (lsel) lsel.value = ac.defaultLivery;
+          }
           $qa('.ac-card').forEach(function (c) { c.classList.remove('active'); });
           card.classList.add('active');
           self._updateMenuSummary();
@@ -245,7 +250,7 @@
     var sum = $('menu-summary');
     if (sum) {
       sum.innerHTML =
-        '<b>' + ac.nameZh + '</b> · ' + (s.livery ? FS.LIVERIES.filter(function (l) { return l.id === s.livery; })[0].name : '') +
+        '<b>' + ac.nameZh + '</b> · ' + (s.livery ? ((FS.LIVERIES.filter(function (l) { return l.id === ((FS.LIVERY_ALIASES && FS.LIVERY_ALIASES[s.livery]) || s.livery); })[0] || {}).name || '') : '') +
         '<br>' + (dep ? dep.icao + ' ' + (dep.cityZh || dep.city) : '') + ' → ' +
         (arr ? arr.icao + ' ' + (arr.cityZh || arr.city) : '') +
         (dist ? '  ·  大圆距离 ' + Math.round(dist) + ' nm' : '') +
@@ -550,6 +555,20 @@
       sim.fm.setParkingBrake(!sim.fm.parkingBrake);
       $('park-brake').classList.toggle('on', sim.fm.parkingBrake);
       self.notify('停留刹车 ' + (sim.fm.parkingBrake ? 'ON' : 'OFF'), 'info');
+    });
+
+    // 推出 (牵引车)
+    btn('pushback-btn', function () {
+      if (sim.fm.togglePushback()) self.notify('推出中… 再按一次停止', 'info', 2500);
+      else self.notify('推出结束', 'info', 1800);
+      $('pushback-btn').classList.toggle('on', sim.fm.pushbackActive);
+    });
+
+    // 电池 / 电源
+    btn('battery-btn', function () {
+      var on = sim.fm.toggleBattery();
+      $('battery-btn').classList.toggle('on', on);
+      self.notify('电池主开关 ' + (on ? 'ON — 座舱通电' : 'OFF — 座舱断电'), 'info', 1800);
     });
 
     // 自动刹车

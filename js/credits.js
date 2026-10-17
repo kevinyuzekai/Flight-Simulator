@@ -37,7 +37,8 @@
           ? '派生：在源模型基础上插入机身段 (' + (c.plug ? ('前 ' + c.plug[0].toFixed(2) + ' m / 后 ' + c.plug[1].toFixed(2) + ' m') : '') + ') 以匹配本机型长度，并非该机型的独立模型'
           : (/sketchfab\.com/.test(cr.url || '') ? '经 Objaverse 数据集获取；去除起落架 (游戏使用程序化起落架)、网格简化、按本机型尺寸缩放、自绘舷窗 / 舱门 / 风挡' : '按本机型尺寸缩放');
         html += '<tr><td>' + esc(c.type) + '</td><td>' + link(cr.url, cr.title || c.source) + '</td><td>' + esc(cr.author) +
-          '</td><td>' + link(cr.licenseUrl, cr.license) + '</td><td class="muted">' + esc(note) + '；涂装已重绘为无商标的中性白色。' + c.triangles + ' 三角面。</td></tr>';
+          '</td><td>' + link(cr.licenseUrl, cr.license) + '</td><td class="muted">' + esc(note) + '；' +
+          esc(cr.liveryNote || '涂装已重绘为无商标的中性白色') + '。' + c.triangles + ' 三角面。</td></tr>';
       });
       html += '</table>';
     }

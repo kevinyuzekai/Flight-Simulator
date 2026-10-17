@@ -12,7 +12,7 @@
      1. 模拟器全局设置
      --------------------------------------------------------------------- */
   FS.CFG = {
-    version: '0.4.2-beta',
+    version: '0.5.0-beta',
     // beta 0.3: 联网全球地景 (真实高程 + 卫星影像), 菜单 / ?online=0|1 / localStorage 'fs.onlineScenery'
     onlineScenery: (function () {
       try { var v = global.localStorage && global.localStorage.getItem('fs.onlineScenery'); if (v === '0') return false; } catch (e) { /* */ }
@@ -103,7 +103,7 @@
     'A350-900': {
       key: 'A350-900',
       name: 'Airbus A350-900',
-      nameZh: '空客 A350-900',
+      nameZh: '空客 A350-900', defaultLivery: 'lake-teal',
       manufacturer: 'Airbus',
       icaoType: 'A359',
       class: 'widebody',
@@ -171,12 +171,12 @@
         flyByWire: { envelopeProtection: true, alphaProt: 14.2, alphaMax: 16.5, bankLimit: 67, highSpeedProt: true, pitchTrimAuto: true }
       },
       lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
-      livery: { body: 0xf2f4f7, belly: 0xd8dde3, accent: 0x1d3557, tail: 0x1d3557, stripe: 0x6a8fb3, engine: 0xe8eaee, wing: 0xe4e7ea, gear: 0x9aa0a6, cockpit: 0x101418 }
+      livery: { body: 0xf3f5f7, belly: 0xdfe3e6, accent: 0x0e6b5c, tail: 0x0e6b5c, stripe: 0xd4a017, engine: 0xe8eaee, wing: 0xe4e7ea, gear: 0x9aa0a6, cockpit: 0x101418 }
     },
 
     /* =============== 空客 A350-1000 =============== */
     'A350-1000': {
-      key: 'A350-1000', name: 'Airbus A350-1000', nameZh: '空客 A350-1000',
+      key: 'A350-1000', name: 'Airbus A350-1000', nameZh: '空客 A350-1000 (碳纤维)', defaultLivery: 'carbon-fiber',
       manufacturer: 'Airbus', icaoType: 'A35K', class: 'widebody',
       engineModelAlias: 'A350-900',
       engines: {
@@ -219,7 +219,7 @@
         flyByWire: { envelopeProtection: true, alphaProt: 14.2, alphaMax: 16.5, bankLimit: 67, highSpeedProt: true, pitchTrimAuto: true }
       },
       lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
-      livery: { body: 0xf2f4f7, belly: 0xd8dde3, accent: 0x1d3557, tail: 0x1d3557, stripe: 0x6a8fb3, engine: 0xe8eaee, wing: 0xe4e7ea, gear: 0x9aa0a6, cockpit: 0x101418 }
+      livery: { body: 0x24272b, belly: 0x1b1e22, accent: 0x3a4046, tail: 0x1e2124, stripe: 0x555b62, engine: 0x2a2e33, wing: 0x24272b, gear: 0x7f858c, cockpit: 0x0a0c0f }
     },
 
     /* =============== 空客 A320neo =============== */
@@ -269,9 +269,61 @@
       livery: { body: 0xf5f6f8, belly: 0xd4d9df, accent: 0x4f8fc0, tail: 0x4f8fc0, stripe: 0x9cc8e6, engine: 0xdfe3e8, wing: 0xe0e3e7, gear: 0x9aa0a6, cockpit: 0x101418 }
     },
 
+    /* =============== 空客 A320ceo =============== */
+    'A320ceo': {
+      key: 'A320ceo', name: 'Airbus A320ceo', nameZh: '空客 A320ceo',
+      manufacturer: 'Airbus', icaoType: 'A320', class: 'narrowbody',
+      engines: {
+        model: 'CFM56-5B4', count: 2, maxThrust: 120100, bypass: 5.9,
+        fanDiameter: 1.73, n1Idle: 22.0, n1Max: 100, spoolUp: 2.4, spoolDown: 3.3,
+        startTime: 32, tsfcCruise: 0.0600, tsfcSL: 0.0360,
+        egtIdle: 400, egtMax: 940, egtTakeoffLimit: 900
+      },
+      dims: {
+        length: 37.57, wingspan: 35.80, height: 11.76,
+        wingArea: 122.6, wingSweep: 25.0, wingDihedral: 5.0,
+        wingRootChord: 7.1, wingTipChord: 1.3,
+        wingPos: { x: 0, y: -1.05, z: 0.4 }, wingletHeight: 2.4, wingletCant: 20,
+        tailSpan: 12.4, tailArea: 31.0, tailPos: { x: 0, y: 1.1, z: 13.6 }, tailSweep: 30,
+        finHeight: 6.0, finArea: 21.5, finPos: { x: 0, y: 2.7, z: 14.6 }, finSweep: 35,
+        // beta 0.4.2: 采用真实外形模型 (models/ac_a320ceo.js), 起落架舱/眼位按模型实测校正
+        fuselageRadius: 1.98, noseLength: 5.6, tailConeLength: 8.4, cockpitWindows: 6,
+        eyeOffset: 4.7,                 // 驾驶舱眼位距机头 (模型风挡实测: 机头后 1.5~4.8 m)
+        enginePos: { x: 5.75, y: -1.55, z: 3.6 },
+        engineNacelleLen: 4.6, engineNacelleDia: 2.15, pylonLen: 2.2,
+        gear: {
+          // 主起落架挂点必须位于参考点(重心)略后方: 保持 0.10/0.90 的前后载荷分配平衡
+          // (|main.z| = |nose.z| / 9), 否则停机时会持续抬头/尾坐。
+          // main.y 使 (main.y - wheelR) 等于模型轮底高度, 地面线与真实模型轮底一致。
+          nose: { x: 0, z: -14.2, y: -0.57, strutLen: 2.47, wheelR: 0.381, wheelW: 0.20, wheels: 2, track: 0.46 },
+          main: { x: 3.78, z: 1.58, y: -2.85, strutLen: 2.22, wheelR: 0.571, wheelW: 0.40, wheels: 2, bogie: false, track: 7.56 }
+        },
+        doorPositions: [-11.5, -6.5, 5.0, 11.0], windowRows: 26
+      },
+      mass: { oew: 42600, mtow: 77000, mlw: 66000, mzfw: 62500, maxFuel: 23860, maxPayload: 19900, paxMax: 180, crew: 6 },
+      perf: { vmo: 350, mmo: 0.82, ceiling: 39800, cruiseMach: 0.78, v2Base: 138, vref: 130, approachFlap: 'FULL', takeoffFlap: '1+F', rotationRate: 3.0, mtowFieldLength: 2100, vAppFactor: 1.23 },
+      flaps: flaps([
+        { name: '0', pos: 0.00, cl: 0.00, cd: 0.000, alphaStall: 18.0, vfe: 999, slat: 0.00, pitchTrim: 0.0 },
+        { name: '1', pos: 0.16, cl: 0.30, cd: 0.011, alphaStall: 17.4, vfe: 230, slat: 0.35, pitchTrim: -0.010 },
+        { name: '1+F', pos: 0.28, cl: 0.50, cd: 0.021, alphaStall: 17.0, vfe: 215, slat: 0.55, pitchTrim: -0.018 },
+        { name: '2', pos: 0.48, cl: 0.80, cd: 0.038, alphaStall: 16.4, vfe: 200, slat: 0.75, pitchTrim: -0.030 },
+        { name: '3', pos: 0.74, cl: 1.18, cd: 0.060, alphaStall: 15.6, vfe: 185, slat: 0.95, pitchTrim: -0.046 },
+        { name: 'FULL', pos: 1.00, cl: 1.55, cd: 0.094, alphaStall: 15.0, vfe: 177, slat: 1.00, pitchTrim: -0.062 }
+      ]),
+      systems: {
+        hydraulics: 3, electrics: 3, adirs: 3, fms: 2, apu: 'APS 3200',
+        fuelTanks: ['L Inner', 'L Outer', 'C', 'R Inner', 'R Outer'],
+        hasHUD: false, autoBrake: ['OFF', 'LO', '2', '3', 'MED', 'HI'], hasTCAS: true, hasEGPWS: true,
+        hasWeatherRadar: true, hasAutoLand: true, hasThrustReverser: true, hasSpoilers: 10, hasFlyByWire: true,
+        flyByWire: { envelopeProtection: true, alphaProt: 14.2, alphaMax: 16.5, bankLimit: 67, highSpeedProt: true, pitchTrimAuto: true }
+      },
+      lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
+      livery: { body: 0xf2f4f7, belly: 0xd4d9df, accent: 0x5c0a2e, tail: 0x5c0a2e, stripe: 0x9aa0a6, engine: 0xe9eaec, wing: 0xe4e7ea, gear: 0x9aa0a6, cockpit: 0x101418 }
+    },
+
     /* =============== 空客 A321neo =============== */
     'A321neo': {
-      key: 'A321neo', name: 'Airbus A321neo', nameZh: '空客 A321neo',
+      key: 'A321neo', name: 'Airbus A321neo', nameZh: '空客 A321neo', defaultLivery: 'deep-blue',
       manufacturer: 'Airbus', icaoType: 'A21N', class: 'narrowbody',
       engines: {
         model: 'CFM LEAP-1A32', count: 2, maxThrust: 143000, bypass: 11.0,
@@ -313,12 +365,12 @@
         flyByWire: { envelopeProtection: true, alphaProt: 14.2, alphaMax: 16.5, bankLimit: 67, highSpeedProt: true, pitchTrimAuto: true }
       },
       lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
-      livery: { body: 0xf5f6f8, belly: 0xd4d9df, accent: 0x1f7a8c, tail: 0x1f7a8c, stripe: 0x7cc3c4, engine: 0xdfe3e8, wing: 0xe0e3e7, gear: 0x9aa0a6, cockpit: 0x101418 }
+      livery: { body: 0xf4f5f7, belly: 0x1b3a6b, accent: 0xc8102e, tail: 0xc8102e, stripe: 0x1b3a6b, engine: 0xe8eaee, wing: 0xe4e7ea, gear: 0x9aa0a6, cockpit: 0x101418 }
     },
 
     /* =============== 空客 A330-300 =============== */
     'A330-300': {
-      key: 'A330-300', name: 'Airbus A330-300', nameZh: '空客 A330-300',
+      key: 'A330-300', name: 'Airbus A330-300', nameZh: '空客 A330-300', defaultLivery: 'classic-red-tail',
       manufacturer: 'Airbus', icaoType: 'A333', class: 'widebody',
       engines: {
         model: 'Rolls-Royce Trent 772B', count: 2, maxThrust: 320300, bypass: 5.0,
@@ -333,11 +385,13 @@
         wingPos: { x: 0, y: -1.2, z: 0.6 }, wingletHeight: 2.4, wingletCant: 25,
         tailSpan: 19.0, tailArea: 70.0, tailPos: { x: 0, y: 1.6, z: 23.0 }, tailSweep: 34,
         finHeight: 10.0, finArea: 52.0, finPos: { x: 0, y: 4.4, z: 24.2 }, finSweep: 38,
+        // beta 0.4.2: 换用真实外形模型 (models/ac_a330_300.js), 起落架舱/眼位按模型实测校正
         fuselageRadius: 2.82, noseLength: 8.6, tailConeLength: 13.5, cockpitWindows: 6,
+        eyeOffset: 8.0,                 // 驾驶舱眼位距机头 (模型风挡实测: 机头后 6.2~8.0 m)
         enginePos: { x: 14.6, y: -1.5, z: 5.0 },
         engineNacelleLen: 6.4, engineNacelleDia: 2.65, pylonLen: 3.2,
         gear: {
-          nose: { x: 0, z: -20.0, y: -2.9, strutLen: 3.2, wheelR: 0.58, wheelW: 0.40, wheels: 2, track: 1.05 },
+          nose: { x: 0, z: -25.0, y: -2.9, strutLen: 3.2, wheelR: 0.58, wheelW: 0.40, wheels: 2, track: 1.05 },
           main: { x: 5.35, z: 2.2, y: -3.1, strutLen: 3.8, wheelR: 1.07, wheelW: 0.40, wheels: 4, bogie: true, track: 10.7 }
         },
         doorPositions: [-19.0, -11.0, 8.0, 16.5], windowRows: 44
@@ -360,12 +414,12 @@
         flyByWire: { envelopeProtection: true, alphaProt: 14.5, alphaMax: 16.8, bankLimit: 67, highSpeedProt: true, pitchTrimAuto: true }
       },
       lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
-      livery: { body: 0xf5f6f8, belly: 0xd4d9df, accent: 0x55407a, tail: 0x55407a, stripe: 0xa58cc7, engine: 0xdfe3e8, wing: 0xe0e3e7, gear: 0x9aa0a6, cockpit: 0x101418 }
+      livery: { body: 0xf2f4f7, belly: 0xdce0e4, accent: 0xe40000, tail: 0xe40000, stripe: 0xe40000, engine: 0xe8eaee, wing: 0xe4e7ea, gear: 0x9aa0a6, cockpit: 0x101418 }
     },
 
     /* =============== 波音 737-800 =============== */
     'B737-800': {
-      key: 'B737-800', name: 'Boeing 737-800', nameZh: '波音 737-800',
+      key: 'B737-800', name: 'Boeing 737-800', nameZh: '波音 737-800', defaultLivery: 'sky-blue',
       manufacturer: 'Boeing', icaoType: 'B738', class: 'narrowbody',
       engines: {
         model: 'CFM56-7B26', count: 2, maxThrust: 117400, bypass: 5.1,
@@ -413,7 +467,7 @@
         stallProtection: { shakerMarginDeg: 3.0, limitMarginDeg: 1.2 }
       },
       lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
-      livery: { body: 0xf7f8fa, belly: 0xd0d5db, accent: 0x2e3138, tail: 0x2e3138, stripe: 0x7d848e, engine: 0xdde1e6, wing: 0xe0e3e7, gear: 0x9aa0a6, cockpit: 0x0e1216 }
+      livery: { body: 0xf4f6f8, belly: 0x073590, accent: 0x073590, tail: 0x073590, stripe: 0xf1c40f, engine: 0x073590, wing: 0xe4e7ea, gear: 0x9aa0a6, cockpit: 0x0e1216 }
     },
 
     /* =============== 波音 737 MAX 8 =============== */
@@ -472,7 +526,7 @@
 
     /* =============== 波音 777-300ER =============== */
     'B777-300ER': {
-      key: 'B777-300ER', name: 'Boeing 777-300ER', nameZh: '波音 777-300ER',
+      key: 'B777-300ER', name: 'Boeing 777-300ER', nameZh: '波音 777-300ER', defaultLivery: 'graphite',
       manufacturer: 'Boeing', icaoType: 'B77W', class: 'widebody',
       engines: {
         model: 'GE90-115B', count: 2, maxThrust: 512800, bypass: 8.4,
@@ -516,7 +570,7 @@
         flyByWire: { envelopeProtection: true, alphaProt: 14.5, alphaMax: 17.0, bankLimit: 35, highSpeedProt: true, pitchTrimAuto: true }
       },
       lights: { landing: 2, taxi: 1, runwayTurnoff: 2, strobe: 3, beacon: 2, nav: 3, logo: 2, wing: 2 },
-      livery: { body: 0xf7f8fa, belly: 0xcfd4da, accent: 0x2f5d4a, tail: 0x2f5d4a, stripe: 0x8fbfa5, engine: 0xdde1e6, wing: 0xe0e3e7, gear: 0x9aa0a6, cockpit: 0x0e1216 }
+      livery: { body: 0xf4f6f9, belly: 0xd8dde4, accent: 0x12294d, tail: 0x12294d, stripe: 0xc9a227, engine: 0xe8eaee, wing: 0xe4e7ea, gear: 0x9aa0a6, cockpit: 0x0e1216 }
     },
 
     /* =============== 波音 787-9 =============== */
@@ -861,8 +915,10 @@
   /* ---------------------------------------------------------------------
      7. 简化的航司涂装主题
      --------------------------------------------------------------------- */
-  // beta 0.3: 全部改为通用中性名称的配色方案, 不对应、不模仿任何真实航空公司涂装 (只有垂尾/腰线/机腹颜色, 无标志文字)
+  // 中性涂装: 已移除所有航司涂装与标志, 只保留通用配色
+  // 通用涂装只有垂尾/腰线/机腹颜色, 无标志文字; 航司涂装由 logo 字段触发垂尾 Canvas 标志绘制
   FS.LIVERIES = [
+    { id: 'carbon-fiber', name: '碳纤维', body: 0x24272b, belly: 0x1b1e22, accent: 0x3a4046, tail: 0x1e2124, stripe: 0x555b62 },
     { id: 'classic-white', name: '经典白', body: 0xf4f5f7, belly: 0xdfe3e8, accent: 0x9aa5b1, tail: 0xc3ccd5, stripe: 0x9aa5b1 },
     { id: 'deep-blue', name: '深海蓝', body: 0xf4f5f7, belly: 0xdfe3e8, accent: 0x1d3557, tail: 0x1d3557, stripe: 0x6a8fb3 },
     { id: 'classic-red-tail', name: '经典红尾', body: 0xf4f5f7, belly: 0xdfe3e8, accent: 0xa23b48, tail: 0xa23b48, stripe: 0x8d939a },
@@ -880,7 +936,8 @@
   FS.LIVERY_ALIASES = {
     'airbus-house': 'classic-white', ces: 'deep-blue', cca: 'classic-red-tail', csh: 'sky-blue', cxa: 'lake-teal',
     singapore: 'graphite', emirates: 'sunset-orange', lufthansa: 'desert-sand', united: 'aurora', delta: 'twilight-purple',
-    ana: 'forest-green', qatar: 'twilight-purple', 'airchina-special': 'classic-red-tail'
+    ana: 'forest-green', qatar: 'twilight-purple', 'airchina-special': 'classic-red-tail',
+    'cathay-pacific': 'lake-teal', 'delta-air': 'deep-blue', qantas: 'classic-red-tail', 'vietnam-airlines': 'lake-teal', ryanair: 'sky-blue', beullubeli: 'graphite'
   };
 
   /* ---------------------------------------------------------------------

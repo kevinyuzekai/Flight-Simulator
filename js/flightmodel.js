@@ -405,7 +405,9 @@
     /* ---- 系统 ---- */
     this.apuRunning = false;
     this.apuTimer = 0;
-    this.batteryOn = true;
+    this.batteryOn = true;                       // 电池主开关
+    this.apuGenOnline = false;                   // APU 发电机接通 (APU 稳定后自动并网)
+    this.genOnline = [false, false];             // 发动机发电机接通 (每台)
     this.hydraulics = [true, true, true];
     this.electrical = [true, true, true, true];
     this.fuelPumps = [true, true, true, true, true];
@@ -415,6 +417,13 @@
     this.apuAvail = false;
     /** beta 0.4.2: 冷舱启动系统 (电源 / APU / 引气 / ADIRS / 燃油 / 液压), 默认全部在运行位置 */
     this.sys = FS.AircraftSystems ? new FS.AircraftSystems(this) : null;
+
+    /* ---- 地面推出 (牵引车) ---- */
+    this.pushbackActive = false;
+    this.pushbackSpeed = 1.5;                    // m/s ≈ 2.9 kt
+    this.pushbackTravelled = 0;
+    this.pushbackLimit = 55;                     // 最长推出距离 (m)
+    this.pushbackDone = false;
 
     /* ---- 告警 ---- */
     this.warnings = {
@@ -598,9 +607,80 @@
     this.airportIcao = icao;
     this.runwayIdent = rwyIdent;
     this.runway = g;
+    this.batteryOn = true; this.apuGenOnline = false; this.genOnline = [false, false];
     this._lastPos = { x: this.pos.x, z: this.pos.z };
     this.time = 0;
     return this;
+  };
+
+  /** 放在停机坪的机位上 (供「冷舱启动」等场景使用)
+      机位由 FS.Airport3D.parkingStands() 从停机坪矩形推算, 保证停在道面上。 */
+  FlightModel.prototype.placeAtStand = function (icao, opts) {
+    opts = opts || {};
+    var stands = (FS.Airport3D && FS.Airport3D.parkingStands)
+      ? FS.Airport3D.parkingStands(icao, { index: opts.index || 0 }) : [];
+    if (!stands.length) throw new Error('找不到停机位 ' + icao);
+    var st = stands[0];
+    this.pos.x = st.x;
+    this.pos.z = st.z;
+    var air = FS.Airports.byIcao(icao);
+    var elevM = air ? (air.elevFt || 0) * 0.3048 : 0;
+    var groundM = this.groundHeightAt(this.pos.x, this.pos.z);
+    if (!isFinite(groundM) || Math.abs(groundM - elevM) > 80) groundM = elevM;
+    this.pos.y = groundM + this.getReferenceHeight();
+    var ll = FS.Geo.toLatLon(this.pos.x, this.pos.z);
+    this.lat = ll.lat; this.lon = ll.lon;
+
+    this.heading = st.hdg;
+    this.pitch = 0; this.roll = 0;
+    this.pitchDeg = 0; this.rollDeg = 0;
+    this.alpha = 0; this.alphaDeg = 0; this.beta = 0; this.betaDeg = 0;
+    this.q = Q.fromEuler(0, 0, this.heading * C.DEG);
+    this.velBody = { x: 0, y: 0, z: 0 };
+    this.velWorld = { x: 0, y: 0, z: 0 };
+    this.rates = { p: 0, q: 0, r: 0 };
+    this.gearPos = 1; this.gearCmd = 1;
+    this.flapPos = opts.flapPos || 0; this.flapCmd = this.flapPos;
+    this.parkingBrake = opts.parkingBrake !== false;
+    this.onGround = true; this.wow = true;
+    this.airportIcao = icao;
+    this.runway = null;
+    this.runwayIdent = opts.runwayIdent || null;
+    this.standName = st.name;
+    this.pushbackActive = false;
+    this.pushbackTravelled = 0;
+    this.pushbackDone = false;
+    this.batteryOn = opts.batteryOn !== false;
+    this.apuGenOnline = false;
+    this.genOnline = [false, false];
+    this._lastPos = { x: this.pos.x, z: this.pos.z };
+    this.time = 0;
+    return this;
+  };
+
+  /* ---------------------------------------------------------------------
+     地面推出 (牵引车)
+       · 直线向后推出, 到位或再按一次即结束; 推出距离有上限
+     --------------------------------------------------------------------- */
+  FlightModel.prototype.startPushback = function () {
+    if (!this.onGround || this.pushbackActive) return false;
+    this.pushbackActive = true;
+    this.pushbackTravelled = 0;
+    this.parkingBrake = false;
+    FS.Bus.emit('fm:pushback', { active: true });
+    return true;
+  };
+
+  FlightModel.prototype.stopPushback = function () {
+    if (!this.pushbackActive) return;
+    this.pushbackActive = false;
+    this.pushbackDone = true;
+    FS.Bus.emit('fm:pushback', { active: false });
+  };
+
+  FlightModel.prototype.togglePushback = function () {
+    if (this.pushbackActive) this.stopPushback(); else this.startPushback();
+    return this.pushbackActive;
   };
 
   /** 在空中根据当前位置摆放 */
@@ -682,11 +762,12 @@
   FlightModel.prototype.setAutoBrake = function (mode) { this.autoBrake = mode; };
 
   FlightModel.prototype.startEngine = function (idx) {
-    // beta 0.4.2: 经由系统逻辑 (ENG MASTER ON; 冷舱场景需满足引气 / 燃油 / 起动选择条件)
     if (this.sys) { this.sys.setEngMaster(idx, true); this._log('发动机启动 ' + (idx === 'all' ? '全部' : idx)); return; }
+    if (!this.hasElectricalPower()) { this._log('发动机起动失败: 无电源'); FS.Bus.emit('fm:engNoPower'); return false; }
     if (idx === 'all') { for (var i = 0; i < this.engines.length; i++) this.engines[i].commandStart(true); }
     else if (this.engines[idx]) this.engines[idx].commandStart(false);
     this._log('发动机启动 ' + (idx === 'all' ? '全部' : idx));
+    return true;
   };
   FlightModel.prototype.shutdownEngine = function (idx) {
     if (this.sys) { this.sys.setEngMaster(idx, false); return; }
@@ -694,11 +775,25 @@
     else if (this.engines[idx]) this.engines[idx].commandShutdown();
   };
   FlightModel.prototype.startAPU = function () {
-    if (this.sys) return this.sys.legacyStartApu();       // MASTER + START (需要直流电)
+    if (this.sys) return this.sys.legacyStartApu();
+    if (!this.batteryOn) { this._log('APU 起动失败: 电池未接通'); FS.Bus.emit('fm:apuNoPower'); return false; }
     if (!this.apuRunning) { this.apuRunning = true; this.apuTimer = 0; FS.Bus.emit('fm:apuStart'); }
     return true;
   };
-  FlightModel.prototype.stopAPU = function () { if (this.sys) this.sys.stopApu(); else this.apuRunning = false; };
+  FlightModel.prototype.stopAPU = function () { if (this.sys) { this.sys.stopApu(); return; } this.apuRunning = false; this.apuGenOnline = false; };
+
+  /* 电池主开关 (冷舱时断开 -> 座舱断电黑屏) */
+  FlightModel.prototype.toggleBattery = function () {
+    this.batteryOn = !this.batteryOn;
+    if (!this.batteryOn) { this.apuGenOnline = false; }
+    this._log('电池主开关 ' + (this.batteryOn ? 'ON' : 'OFF'));
+    FS.Bus.emit('fm:battery', { on: this.batteryOn });
+    return this.batteryOn;
+  };
+  /* 是否有电: 电池接通, 或 APU/发动机发电机并网 */
+  FlightModel.prototype.hasElectricalPower = function () {
+    return !!(this.batteryOn || this.apuGenOnline || this.genOnline[0] || this.genOnline[1]);
+  };
 
   FlightModel.prototype.setReverser = function (idx, on) {
     if (idx === 'all') { for (var i = 0; i < this.engines.length; i++) this.engines[i].reverserArmed = on; }
@@ -1413,6 +1508,15 @@
       }
     } else { this._apuStarted = false; this.apuTimer = 0; }
 
+    /* ---- 2b. 电源: 发电机并网判定 ---- */
+    if (!this.batteryOn) this.apuGenOnline = false;
+    else this.apuGenOnline = this.apuRunning && this.apuTimer > 2;
+    for (var ei = 0; ei < this.genOnline.length; ei++) {
+      var eng = this.engines[ei];
+      this.genOnline[ei] = !!(this.batteryOn && eng && eng.n2 >= 50 &&
+        (eng.state === 'running' || eng.state === 'idle'));
+    }
+
     /* ---- 3. 控制律 ---- */
     this._applyControlLaw(dt);
 
@@ -1533,6 +1637,20 @@
     if (spd > 400) {                                    // 约 M1.17 硬限
       var sc = 400 / spd;
       this.velBody.x *= sc; this.velBody.y *= sc; this.velBody.z *= sc;
+    }
+
+    /* 地面推出: 牵引车匀速直线向后, 覆盖气动/摩擦结果 (机头方向为 (sinH, -cosH)) */
+    if (this.pushbackActive) {
+      if (!this.onGround) {
+        this.stopPushback();
+      } else {
+        var hpr = this.heading * C.DEG;
+        this.pushbackTravelled += this.pushbackSpeed * dt;
+        var pbv = { x: -Math.sin(hpr) * this.pushbackSpeed, y: 0, z: Math.cos(hpr) * this.pushbackSpeed };
+        this.velWorld = pbv;
+        this.velBody = Q.invRotate(this.q, pbv);
+        if (this.pushbackTravelled >= this.pushbackLimit) this.stopPushback();
+      }
     }
 
     // 姿态四元数积分
@@ -1840,6 +1958,8 @@
       flapDetent: this.flapDetentIndex,
       surfaces: this.surfaces,
       onGround: this.onGround, wow: this.wow,
+      apuAvail: this.apuAvail,
+      sys: this.sys ? this.sys.snapshot() : null,
       gearCompression: this.gearCompression, brakeTemp: this.brakeTemp.slice(),
       steering: this.steerAngle, wheelSpin: this.wheelSpin,
       onGroundAny: this.onGround,
@@ -1854,12 +1974,16 @@
       wind: { dir: this.windDir, speed: this.windSpeed, gust: this.gust, turbulence: this.turbulence },
       ambientT: this.ambientT,
       apuRunning: this.apuRunning,
-      apuAvail: this.apuAvail,
-      sys: this.sys ? this.sys.snapshot() : null,
+      batteryOn: this.batteryOn,
+      apuGenOnline: this.apuGenOnline,
+      electricalPower: this.hasElectricalPower(),
       ap: this.ap,
       controlLaw: this.controlLaw,
       groundSpoilers: this.groundSpoilers,
       parkingBrake: this.parkingBrake,
+      pushback: this.pushbackActive,
+      pushbackDone: this.pushbackDone,
+      standName: this.standName || null,
       autoBrake: this.autoBrake,
       antiSkid: this.antiSkidActive,
       airportIcao: this.airportIcao,

@@ -181,10 +181,11 @@ Object.keys(A).forEach(function (k) {
     var m = A[k], db = FS.AIRCRAFT_DB[k];
     assert(db, '未知机型 key');
     assert(m.credit && m.credit.author && m.credit.license && m.credit.url && m.credit.licenseUrl, '缺少署名/许可信息');
-    assert(/CC0|CC BY 4\.0|Public Domain/.test(m.credit.license), '许可证不在允许列表: ' + m.credit.license);
+    assert(/CC0|CC BY 4\.0|Public Domain|SkyRoute 项目自有/.test(m.credit.license), '许可证不在允许列表: ' + m.credit.license);
     assert(m.triangles > 500 && m.triangles < 50000, '三角面数异常 ' + m.triangles);
-    var tex = T[m.texId];
-    assert(tex && /^data:image\/jpeg;base64,/.test(tex.base) && /^data:image\/png;base64,/.test(tex.mask), '贴图缺失');
+    var tex = m.texId != null ? T[m.texId] : null; // 项目自制模型 (C919/E190) 用顶点色, 无贴图
+    if (m.texId != null) assert(tex && /^data:image\/jpeg;base64,/.test(tex.base) && /^data:image\/png;base64,/.test(tex.mask), '贴图缺失');
+    if (/项目自有/.test(m.credit.license)) return m.triangles + " tris, 项目自制 (顶点色, 无 anchors)";
     var an = m.anchors;
     assert(Math.abs(an.length - db.dims.length) / db.dims.length < 0.03, '机身长度与机型不符: ' + an.length.toFixed(1) + ' vs ' + db.dims.length);
     assert(Math.abs(an.span - db.dims.wingspan) / db.dims.wingspan < 0.03, '翼展与机型不符: ' + an.span.toFixed(1) + ' vs ' + db.dims.wingspan);

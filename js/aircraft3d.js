@@ -144,7 +144,7 @@
     pk._dec = {
       pos: new Float32Array(b64ToBuffer(pk.pos)),
       nrm: new Int8Array(b64ToBuffer(pk.nrm)),
-      uv: new Float32Array(b64ToBuffer(pk.uv)),
+      uv: pk.uv ? new Float32Array(b64ToBuffer(pk.uv)) : null,   // 无贴图资产可省去 UV
       idx: new Uint16Array(b64ToBuffer(pk.idx))
     };
     return pk._dec;
@@ -155,7 +155,7 @@
     var g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(d.pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(d.nrm, 3, true));
-    g.setAttribute('uv', new THREE.BufferAttribute(d.uv, 2));
+    if (d.uv && d.uv.length) g.setAttribute('uv', new THREE.BufferAttribute(d.uv, 2));
     g.setIndex(new THREE.BufferAttribute(d.idx, 1));
     g.computeBoundingSphere();
     return g;
@@ -186,7 +186,133 @@
 
   function hexRGB(h) { return [(h >> 16) & 255, (h >> 8) & 255, h & 255]; }
 
-  function compositeLivery(rec, lv, canvas) {
+  /* 中性涂装: 航司垂尾标志已全部移除 */
+  function drawTailEmblem() { }
+
+  /* A330 驾驶舱风挡: 直接用机模自身网格生成真实的 3D 玻璃几何
+     (在机头曲面上按角点双线性采样贴合, 不再依赖贴图上的手绘图案)
+     每片 4 个角点 [z, x]: A=前内 B=前外 C=后外 D=后内; 右舷 3 片, 左舷镜像 */
+  var A330_WIND = [
+    [[-28.90, 0.04], [-28.40, 0.72], [-26.80, 0.94], [-27.10, 0.04]], // 主风挡
+    [[-28.40, 0.82], [-27.70, 1.28], [-26.68, 1.48], [-26.88, 0.94]], // 固定窗
+    [[-27.10, 1.42], [-26.55, 1.62], [-25.90, 1.60], [-26.35, 1.45]]  // 滑动窗
+  ];
+
+  /** 擦除 A330 自绘底图里的旧矩形风挡图案 (旧图案不再使用) */
+  function cleanA330CockpitTexture(ctx, W, H) {
+    var ex0 = Math.max(0, Math.round(0.030 * W)), ex1 = Math.min(W, Math.round(0.190 * W));
+    var ey0 = Math.max(0, Math.round(0.145 * H)), ey1 = Math.min(H, Math.round(0.475 * H));
+    if (ex1 <= ex0 || ey1 <= ey0) return;
+    var ed = ctx.getImageData(ex0, ey0, ex1 - ex0, ey1 - ey0), d = ed.data, i;
+    for (i = 0; i < d.length; i += 4) {
+      if (d[i] < 130 && d[i + 1] < 135 && d[i + 2] < 150) { d[i] = 245; d[i + 1] = 246; d[i + 2] = 248; }
+    }
+    ctx.putImageData(ed, ex0, ey0);
+  }
+
+  /** 在机模机头曲面上生成风挡玻璃网格 (真正的 3D 部件) */
+  function buildA330Windshield(bodyPack, group, parts, mats) {
+    var d2 = decodePacked(bodyPack), P = d2.pos, IDX = d2.idx;
+    // 机头上半表面三角形
+    var tris = [], t;
+    for (t = 0; t < IDX.length; t += 3) {
+      var a = IDX[t], b = IDX[t + 1], c = IDX[t + 2];
+      if (P[a * 3 + 2] > -22.5 || P[b * 3 + 2] > -22.5 || P[c * 3 + 2] > -22.5) continue;
+      if (P[a * 3 + 1] < -0.1 || P[b * 3 + 1] < -0.1 || P[c * 3 + 1] < -0.1) continue;
+      tris.push([a, b, c]);
+    }
+    if (!tris.length) return;
+    // 由 (z,x) 反查机头曲面点 (重心插值)
+    function surf(z, x) {
+      for (var i = 0; i < tris.length; i++) {
+        var tr = tris[i], a = tr[0], b = tr[1], c = tr[2];
+        var z0 = P[a * 3 + 2], x0 = P[a * 3], z1 = P[b * 3 + 2], x1 = P[b * 3], z2 = P[c * 3 + 2], x2 = P[c * 3];
+        var dd = (x1 - x2) * (z0 - z2) + (z2 - z1) * (x0 - x2);
+        if (Math.abs(dd) < 1e-9) continue;
+        var l0 = ((x1 - x2) * (z - z2) + (z2 - z1) * (x - x2)) / dd;
+        var l1 = ((x2 - x0) * (z - z2) + (z0 - z2) * (x - x2)) / dd;
+        var l2 = 1 - l0 - l1;
+        if (l0 < -1e-6 || l1 < -1e-6 || l2 < -1e-6) continue;
+        return [l0 * P[a * 3] + l1 * P[b * 3] + l2 * P[c * 3],
+                l0 * P[a * 3 + 1] + l1 * P[b * 3 + 1] + l2 * P[c * 3 + 1],
+                l0 * P[a * 3 + 2] + l1 * P[b * 3 + 2] + l2 * P[c * 3 + 2]];
+      }
+      return null;
+    }
+    function surfNormal(z, x) {
+      var h = 0.10;
+      var p1 = surf(z + h, x), p0 = surf(z - h, x), q1 = surf(z, x + h), q0 = surf(z, x - h);
+      if (!p1 || !p0 || !q1 || !q0) return [0, 1, 0];
+      var tz = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+      var tx = [q1[0] - q0[0], q1[1] - q0[1], q1[2] - q0[2]];
+      var n = [tz[1] * tx[2] - tz[2] * tx[1], tz[2] * tx[0] - tz[0] * tx[2], tz[0] * tx[1] - tz[1] * tx[0]];
+      var L = Math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) || 1;
+      n = [n[0] / L, n[1] / L, n[2] / L];
+      var cy = (p1[1] + p0[1]) * 0.5;
+      if (n[0] * x + n[1] * cy < 0) n = [-n[0], -n[1], -n[2]];   // 朝外
+      return n;
+    }
+    // 生成单片曲面玻璃 (expand>1 为外框, outOff 为沿法线外移量)
+    var N = 4;
+    function paneGeo(pts, expand, outOff) {
+      var cz = 0, cx = 0, i;
+      for (i = 0; i < 4; i++) { cz += pts[i][0]; cx += pts[i][1]; }
+      cz /= 4; cx /= 4;
+      var q = pts.map(function (p) { return [cz + (p[0] - cz) * expand, cx + (p[1] - cx) * expand]; });
+      var pos = [], ok = [], r, cc;
+      for (r = 0; r <= N; r++) {
+        var tt = r / N;
+        var iz = q[0][0] + (q[3][0] - q[0][0]) * tt, ix = q[0][1] + (q[3][1] - q[0][1]) * tt;
+        var oz = q[1][0] + (q[2][0] - q[1][0]) * tt, ox = q[1][1] + (q[2][1] - q[1][1]) * tt;
+        for (cc = 0; cc <= N; cc++) {
+          var ss = cc / N;
+          var z = iz + (oz - iz) * ss, x = ix + (ox - ix) * ss;
+          var p = surf(z, x);
+          if (p) {
+            var n = surfNormal(z, x);
+            pos.push(p[0] + n[0] * outOff, p[1] + n[1] * outOff, p[2] + n[2] * outOff);
+            ok.push(true);
+          } else { pos.push(0, 0, 0); ok.push(false); }
+        }
+      }
+      var idx = [];
+      for (r = 0; r < N; r++) for (cc = 0; cc < N; cc++) {
+        var i0 = r * (N + 1) + cc, i1 = i0 + 1, i2 = i0 + (N + 1), i3 = i2 + 1;
+        if (ok[i0] && ok[i1] && ok[i2] && ok[i3]) idx.push(i0, i2, i1, i1, i2, i3);
+      }
+      if (!idx.length) return null;
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+      g.computeVertexNormals();
+      g.setIndex(idx);
+      g.computeBoundingSphere();
+      return g;
+    }
+    var matGlass = new THREE.MeshStandardMaterial({
+      color: 0x151a22, metalness: 0.62, roughness: 0.14,
+      side: THREE.DoubleSide, envMapIntensity: 1.4
+    });
+    var matFrame = new THREE.MeshStandardMaterial({
+      color: 0x9aa2ae, metalness: 0.35, roughness: 0.55, side: THREE.DoubleSide
+    });
+    mats.push(matGlass, matFrame);
+    var wg = new THREE.Group();
+    wg.name = 'windshield';
+    var k, s, pane;
+    for (k = 0; k < A330_WIND.length; k++) {
+      for (s = 0; s < 2; s++) {                       // 0=右舷, 1=左舷(镜像)
+        pane = A330_WIND[k].map(function (p) { return [p[0], s ? -p[1] : p[1]]; });
+        var gf = paneGeo(pane, 1.16, 0.012);          // 窗框
+        if (gf) { var mf = new THREE.Mesh(gf, matFrame); wg.add(mf); }
+        var gg = paneGeo(pane, 1.00, 0.024);          // 玻璃
+        if (gg) { var mg = new THREE.Mesh(gg, matGlass); wg.add(mg); }
+      }
+    }
+    group.add(wg);
+    parts.windshield = wg;
+  }
+
+  function compositeLivery(rec, lv, canvas, texId) {
     var W = rec.base.naturalWidth || rec.base.width, H = rec.base.naturalHeight || rec.base.height;
     canvas.width = W; canvas.height = H;
     var ctx = canvas.getContext('2d');
@@ -216,12 +342,28 @@
       p[i] = r; p[i + 1] = g; p[i + 2] = b;
     }
     ctx.putImageData(img, 0, 0);
+    // A330 驾驶舱风挡 (该机型的贴图为自绘底图, 风挡由模型 UV 反投影重建)
+    if (texId === 'A330') cleanA330CockpitTexture(ctx, W, H);
+    // 垂尾简化标志 (依据遮罩 R 通道定位垂尾区域的包围盒)
+    if (lv.logo) {
+      var minX = W, minY = H, maxX = -1, maxY = -1, o2, px, py;
+      for (py = 0; py < H; py += 2) {
+        for (px = 0; px < W; px += 2) {
+          o2 = (py * W + px) * 4;
+          if (msk[o2] > 110 && msk[o2] > msk[o2 + 1] + 20 && msk[o2] > msk[o2 + 2] + 20) {
+            if (px < minX) minX = px; if (px > maxX) maxX = px;
+            if (py < minY) minY = py; if (py > maxY) maxY = py;
+          }
+        }
+      }
+      if (maxX > minX && maxY > minY) drawTailEmblem(ctx, lv.logo, minX, minY, maxX - minX, maxY - minY);
+    }
     return true;
   }
 
   function assetTexture(texId, lv) {
     if (!global.document || typeof global.document.createElement !== 'function') return null;
-    var key = texId + '|' + [lv.body, lv.belly, lv.stripe, lv.tail].join(',');
+    var key = texId + '|' + [lv.body, lv.belly, lv.stripe, lv.tail, lv.logo || ''].join(',');
     if (_assetTexCache[key]) return _assetTexCache[key];
     var canvas;
     try { canvas = global.document.createElement('canvas'); } catch (e) { return null; }
@@ -235,7 +377,7 @@
     tex.magFilter = THREE.LinearFilter;
     tex.anisotropy = 4;
     var rec = assetImages(texId, function (r) {
-      if (!compositeLivery(r, lv, canvas)) {
+      if (!compositeLivery(r, lv, canvas, texId)) {
         canvas.width = r.base.naturalWidth; canvas.height = r.base.naturalHeight;
         canvas.getContext('2d').drawImage(r.base, 0, 0);
       }
@@ -934,13 +1076,45 @@
       body.name = 'assetBody';
       group.add(body);
       parts.fuselage = body;
+      // A330: 用机模机头曲面生成真实的 3D 驾驶舱风挡玻璃 (仅旧资产需要; 新资产自带风挡几何)
+      if (asset.texId === 'A330') buildA330Windshield(asset.body, group, parts, mats);
+      // beta 0.4.2: 多部件分色资产 (蒙皮/舷窗玻璃/垂尾/标志/金属灰) —— 用模型自带固定颜色, 不跟随菜单涂装
+      var exs = asset.extras;
+      if (exs && exs.length) {
+        var em = [];
+        for (var e = 0; e < exs.length; e++) {
+          var ex = exs[e];
+          var matEx = new THREE.MeshStandardMaterial({
+            color: ex.color,
+            metalness: ex.metalness, roughness: ex.roughness,
+            // 空心壳体部件 (如短舱) 需要双面渲染, 否则从进气口能看到"透明"
+            side: ex.doubleSide ? THREE.DoubleSide : THREE.FrontSide, envMapIntensity: 1.15
+          });
+          mats.push(matEx); em.push(matEx);
+          var meshEx = new THREE.Mesh(geoFromPacked(ex.mesh), matEx);
+          meshEx.name = 'assetPart' + e;                 // 名字避开 measureAnchors 的排除关键词
+          group.add(meshEx);
+        }
+        parts.extraMat = em;
+      }
       var i;
       for (i = 0; i < asset.fans.length; i++) {
         var f = asset.fans[i];
         var g = new THREE.Group();
         g.name = 'fan' + (f.side > 0 ? 'R' : 'L');
         g.position.set(f.pivot[0], f.pivot[1], f.pivot[2]);
-        g.add(new THREE.Mesh(geoFromPacked(f.mesh), matSkin));
+        var fmat = matSkin;
+        if (f.color !== undefined) {                 // 风扇可自带材质 (如 A330 的深灰叶片)
+          fmat = new THREE.MeshStandardMaterial({
+            color: f.color,
+            metalness: f.metalness === undefined ? 0.6 : f.metalness,
+            roughness: f.roughness === undefined ? 0.4 : f.roughness,
+            side: f.doubleSide ? THREE.DoubleSide : THREE.FrontSide,
+            envMapIntensity: 1.1
+          });
+          mats.push(fmat);
+        }
+        g.add(new THREE.Mesh(geoFromPacked(f.mesh), fmat));
         group.add(g);
         rig['fan' + (f.side > 0 ? 'R' : 'L')] = g;
         parts[f.side > 0 ? 'fanR' : 'fanL'] = g;
@@ -1334,9 +1508,124 @@
     }
 
     /* ================================================================
+       10.5b 真实模型自带起落架 (asset.gear)
+             A330-300: 前起 / 左主起 / 右主起 = 支柱 + 连杆(可折叠) + 舱门 + 车架 + 机轮。
+             - 收放: 前起向前收、主起向内收; 车架沿支柱上移 (真机"起落架缩短")。
+             - 连杆绕自身顶端铰点折起; 主起外侧舱盖挂在支柱上随动并折起; 前起舱盖先开后关。
+             - 收放过程按裁剪平面裁剪 (clip): 起落架被"吞"进舱内, 不穿透机翼/机身。
+       ================================================================ */
+    function buildAssetGear() {
+      var G = asset.gear;
+      var clipList = [];
+      function mkPlane(y) {
+        if (y === null || y === undefined) return null;
+        var p = new THREE.Plane(new THREE.Vector3(0, -1, 0), y);   // y 高于该平面 => 被裁掉
+        p.userData = { base: p.clone() };
+        clipList.push(p);
+        return p;
+      }
+      var planeMain = mkPlane(G.clip && G.clip.main);
+      var planeNose = mkPlane(G.clip && G.clip.nose);
+      rig.clipPlanes = clipList;
+      function partMesh(p, plane) {
+        var mt = new THREE.MeshStandardMaterial({
+          color: p.color, metalness: p.metalness, roughness: p.roughness,
+          side: THREE.FrontSide, envMapIntensity: 1.1
+        });
+        if (plane) mt.clippingPlanes = [plane];
+        mats.push(mt);
+        return new THREE.Mesh(geoFromPacked(p.mesh), mt);
+      }
+      function addParts(container, list, plane) {
+        for (var i = 0; i < list.length; i++) container.add(partMesh(list[i], plane));
+      }
+      function addWheel(container, W, ox, oy, oz, plane) {
+        var wg = new THREE.Group();
+        wg.name = 'wheel' + container.name + (W.pivot[2]).toFixed(2);
+        wg.position.set(W.pivot[0] - ox, W.pivot[1] - oy, W.pivot[2] - oz);
+        addParts(wg, W.parts, plane);
+        container.add(wg);
+        return wg;
+      }
+      rig.gearDoors = []; rig.gearLinks = []; rig.bogies = [];
+      var defs = [
+        { key: 'nose', name: 'gearNose', wheelArr: 'wheelNose', baseY: 'noseBaseY' },
+        { key: 'mainL', name: 'gearMainL', wheelArr: 'wheelsMainL', baseY: 'mainBaseYL' },
+        { key: 'mainR', name: 'gearMainR', wheelArr: 'wheelsMainR', baseY: 'mainBaseYR' }
+      ];
+      for (var d = 0; d < defs.length; d++) {
+        var def = defs[d], A = G[def.key];
+        if (!A) continue;
+        var plane = def.key === 'nose' ? planeNose : planeMain;
+        var g = new THREE.Group();
+        g.name = def.name;
+        g.position.set(A.pivot[0], A.pivot[1], A.pivot[2]);
+        group.add(g);
+        addParts(g, A.parts, plane);
+        parts[def.name] = g; rig[def.name] = g;
+        rig[def.baseY] = A.pivot[1];
+        var i, arr = parts[def.wheelArr] || (parts[def.wheelArr] = []);
+        if (A.bogie) {                             // 车架 (收上时沿支柱上移)
+          var B = A.bogie, bg = new THREE.Group();
+          bg.name = 'gearBogie' + def.key;
+          bg.position.set(B.pivot[0] - A.pivot[0], B.pivot[1] - A.pivot[1], B.pivot[2] - A.pivot[2]);
+          addParts(bg, B.parts, plane);
+          g.add(bg);
+          rig.bogies.push({ g: bg, baseY: bg.position.y, travel: B.travel || 1.1 });
+          for (i = 0; i < A.wheels.length; i++) arr.push(addWheel(bg, A.wheels[i], B.pivot[0], B.pivot[1], B.pivot[2], plane));
+        } else {
+          for (i = 0; i < A.wheels.length; i++) arr.push(addWheel(g, A.wheels[i], A.pivot[0], A.pivot[1], A.pivot[2], plane));
+        }
+        for (i = 0; i < (A.links || []).length; i++) {          // 连杆 (绕自身顶端折起)
+          var L = A.links[i], lg = new THREE.Group();
+          lg.name = 'gearLink' + def.key + i;
+          lg.position.set(L.pivot[0] - A.pivot[0], L.pivot[1] - A.pivot[1], L.pivot[2] - A.pivot[2]);
+          addParts(lg, L.parts, plane);
+          g.add(lg);
+          rig.gearLinks.push({ g: lg, axis: L.axis, sign: L.sign, max: L.max });
+        }
+        var doorGroups = [];
+        for (i = 0; i < (A.doors || []).length; i++) {          // 舱门 (铰接在机体上, 不随支柱一起旋转)
+          var D = A.doors[i], dg = new THREE.Group();
+          dg.name = 'gearDoor' + D.name;
+          dg.position.set(D.pivot[0], D.pivot[1], D.pivot[2]);
+          addParts(dg, D.parts, D.clip ? plane : null);
+          group.add(dg);
+          doorGroups.push(dg);
+          rig.gearDoors.push({ g: dg, axis: D.axis, sign: D.sign, max: D.max, timing: D.timing });
+        }
+        // 舱内暗腔: 前起舱门本身就是机头下表面的一部分, 打开时要看到深色轮舱而不是"洞"
+        if (def.key === 'nose' && doorGroups.length) {
+          var bmin = [1e9, 1e9, 1e9], bmax = [-1e9, -1e9, -1e9];
+          for (i = 0; i < doorGroups.length; i++) (function (dgr) {
+            dgr.traverse(function (o) {
+              if (!o.isMesh) return;
+              o.geometry.computeBoundingBox();
+              var gb = o.geometry.boundingBox;
+              bmin[0] = Math.min(bmin[0], gb.min.x + dgr.position.x);
+              bmin[1] = Math.min(bmin[1], gb.min.y + dgr.position.y);
+              bmin[2] = Math.min(bmin[2], gb.min.z + dgr.position.z);
+              bmax[0] = Math.max(bmax[0], gb.max.x + dgr.position.x);
+              bmax[1] = Math.max(bmax[1], gb.max.y + dgr.position.y);
+              bmax[2] = Math.max(bmax[2], gb.max.z + dgr.position.z);
+            });
+          })(doorGroups[i]);
+          var bh = 0.9;
+          var bay = new THREE.Mesh(new THREE.BoxGeometry((bmax[0] - bmin[0]) * 1.04, bh, (bmax[2] - bmin[2]) * 1.02), matDark);
+          bay.name = 'gearBayNose';
+          bay.position.set((bmin[0] + bmax[0]) / 2, bmin[1] + 0.06 + bh / 2, (bmin[2] + bmax[2]) / 2);
+          group.add(bay);
+        }
+      }
+      rig.noseMaxComp = 0.14;                     // 地面滑行时支柱压缩量 (m)
+      rig.maxComp = 0.16;
+    }
+
+    /* ================================================================
        10.6 起落架
        ================================================================ */
     function buildGear() {
+      if (asset && asset.gear && asset.gear.nose) { buildAssetGear(); return; }   // 模型自带起落架
       var a = 0;
       /* --- 机轮 --- */
       function wheel(r, w) {
@@ -1357,60 +1646,110 @@
 
       /* --- 前起落架 --- */
       var gn = d.gear.nose;
-      var ng = new THREE.Group();
-      ng.name = 'gearNose';
-      ng.position.set(0, plan.noseAxleY, gn.z);
+      // 收放铰点位于支柱顶端 (转轴), 而非轮轴 —— 收放时整条起落架绕此点摆动,
+      // 与真机一致 (此前绕轮轴旋转, 支柱会像扇子一样扫开, 明显失真)
       var nStrutLen = Math.max(0.2, gn.strutLen + (gn.y - plan.noseAxleY));
+      var nPivot = new THREE.Group();
+      nPivot.name = 'gearNose';
+      nPivot.position.set(0, plan.noseAxleY + nStrutLen, gn.z);
+      var nLeg = new THREE.Group();               // 局部原点回到轮轴 (y=0 在轮轴)
+      nLeg.position.set(0, -nStrutLen, 0);
+      nPivot.add(nLeg);
+
       var nStrut = new THREE.Mesh(new THREE.CylinderGeometry(gn.wheelR * 0.30, gn.wheelR * 0.34, nStrutLen, 8, 1), matGear);
       nStrut.position.y = nStrutLen * 0.5;
-      ng.add(nStrut);
+      nLeg.add(nStrut);
       var nOleo = new THREE.Mesh(new THREE.CylinderGeometry(gn.wheelR * 0.40, gn.wheelR * 0.40, nStrutLen * 0.34, 8, 1), matMetal);
       nOleo.position.y = nStrutLen * 0.18;
-      ng.add(nOleo);
+      nLeg.add(nOleo);
+      // 收上接头 (转轴接头)
+      var nFit = new THREE.Mesh(new THREE.BoxGeometry(gn.wheelR * 0.46, gn.wheelR * 0.30, gn.wheelR * 0.46), matGear);
+      nFit.position.y = nStrutLen * 0.98;
+      nLeg.add(nFit);
+      // 扭力臂 (scissor links): 两段折线, 连接支柱上下
+      var nSc1 = new THREE.Mesh(new THREE.BoxGeometry(gn.wheelR * 0.15, nStrutLen * 0.30, gn.wheelR * 0.10), matGear);
+      nSc1.position.set(gn.wheelR * 0.33, nStrutLen * 0.20, 0); nSc1.rotation.z = 0.55;
+      nLeg.add(nSc1);
+      var nSc2 = new THREE.Mesh(new THREE.BoxGeometry(gn.wheelR * 0.15, nStrutLen * 0.28, gn.wheelR * 0.10), matGear);
+      nSc2.position.set(gn.wheelR * 0.28, nStrutLen * 0.43, 0); nSc2.rotation.z = -0.55;
+      nLeg.add(nSc2);
       var nAxle = new THREE.Mesh(new THREE.CylinderGeometry(gn.wheelR * 0.16, gn.wheelR * 0.16, gn.track * 0.9, 6, 1), matMetal);
       nAxle.rotation.z = Math.PI / 2;
-      ng.add(nAxle);
+      nLeg.add(nAxle);
       var wheelsN = [];
       for (a = 0; a < gn.wheels; a++) {
         var sx = (gn.wheels === 1) ? 0 : (a === 0 ? -1 : 1);
         var wh = wheel(gn.wheelR, gn.wheelW);
         wh.position.x = sx * gn.wheelW * 0.62;
-        ng.add(wh);
+        nLeg.add(wh);
         wheelsN.push(wh);
       }
       // 前轮转弯作动器 (位于轮轴上方)
       var steer = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, gn.wheelR * 1.1), matGear);
       steer.position.set(gn.wheelR * 0.55, nStrutLen * 0.30, 0);
-      ng.add(steer);
-      group.add(ng);
-      parts.gearNose = ng;
+      nLeg.add(steer);
+      group.add(nPivot);
+      parts.gearNose = nPivot;
       parts.wheelNose = wheelsN;
-      rig.gearNose = ng;
-      rig.noseBaseY = plan.noseAxleY;
+      rig.gearNose = nPivot;
+      rig.noseLegLen = nStrutLen;
+      rig.noseBaseY = nPivot.position.y;
       rig.noseMaxComp = Math.min(0.30, gn.strutLen * 0.12);
 
       /* --- 主起落架 --- */
+      // 修正: 收放铰点(转轴)必须位于机翼下表面之下。
+      // 旧实现把铰点放在标定 trunnion 高度 (≈ -1.05, 高于该处机翼下缘 ≈ -1.5),
+      // 支柱上半段会从机翼蒙皮上方"戳"出来。现取机翼下缘再下移 0.1 m 作为铰点高度,
+      // 支柱整体位于机翼下方; 收起时绕 Z 轴向机身内侧折转, 收进翼根下的起落架舱。
+      var gmP = d.gear.main;
+      var tGear = clamp(gmP.x / Math.max(1, plan.halfSkin), 0.03, 0.9);
+      var poseGear = plan.poseAt(tGear, 0);
+      var wingLowGear = d.wingPos.y + poseGear.y
+        - 0.34 * plan.chordAt(tGear) * plan.thickRatioAt(tGear);
+      var mainTrunnionY = Math.min(plan.mainTrunnion, wingLowGear - 0.16);
       function mainGear(side) {
         var gm = d.gear.main;
-        var g = new THREE.Group();
-        g.name = 'gearMain' + (side > 0 ? 'R' : 'L');
-        g.position.set(side * gm.x, plan.mainAxleY, gm.z);
-        var strutLen = Math.max(0.2, gm.strutLen + (gm.y - plan.mainAxleY));
+        var strutLen = Math.max(0.85, mainTrunnionY - plan.mainAxleY);
+        // 收放铰点位于支柱顶端 (转轴), 高度已被限制在机翼下缘之下
+        var pivot = new THREE.Group();
+        pivot.name = 'gearMain' + (side > 0 ? 'R' : 'L');
+        pivot.position.set(side * gm.x, mainTrunnionY, gm.z);
+        var leg = new THREE.Group();                // 局部原点在轮轴
+        leg.position.set(0, -strutLen, 0);
+        pivot.add(leg);
+
         var st = new THREE.Mesh(new THREE.CylinderGeometry(gm.wheelR * 0.30, gm.wheelR * 0.34, strutLen, 8, 1), matGear);
         st.position.y = strutLen * 0.5;
-        g.add(st);
+        leg.add(st);
         var oleo = new THREE.Mesh(new THREE.CylinderGeometry(gm.wheelR * 0.40, gm.wheelR * 0.40, strutLen * 0.40, 8, 1), matMetal);
         oleo.position.y = strutLen * 0.20;
-        g.add(oleo);
+        leg.add(oleo);
+        // 转轴接头 (与机身相连处)
+        var fit = new THREE.Mesh(new THREE.BoxGeometry(gm.wheelR * 0.52, gm.wheelR * 0.34, gm.wheelR * 0.52), matGear);
+        fit.position.y = strutLen * 0.98;
+        leg.add(fit);
+        // 阻力撑杆 (drag brace): 由支柱上部斜撑向机身
+        var brace = new THREE.Mesh(new THREE.CylinderGeometry(gm.wheelR * 0.10, gm.wheelR * 0.12, strutLen * 0.95, 6, 1), matMetal);
+        brace.position.set(-side * gm.wheelR * 0.55, strutLen * 0.42, strutLen * 0.30);
+        brace.rotation.z = side * 0.55; brace.rotation.x = -0.42;
+        leg.add(brace);
+        // 侧撑杆
         var side2 = new THREE.Mesh(new THREE.BoxGeometry(0.10, strutLen * 0.5, 0.16), matGear);
         side2.position.set(side * gm.wheelR * 0.34, strutLen * 0.30, 0);
-        g.add(side2);
+        leg.add(side2);
+        // 扭力臂 (scissor)
+        var sc1 = new THREE.Mesh(new THREE.BoxGeometry(gm.wheelR * 0.14, strutLen * 0.26, gm.wheelR * 0.10), matGear);
+        sc1.position.set(gm.wheelR * 0.30, strutLen * 0.18, 0); sc1.rotation.z = 0.55;
+        leg.add(sc1);
+        var sc2 = new THREE.Mesh(new THREE.BoxGeometry(gm.wheelR * 0.14, strutLen * 0.24, gm.wheelR * 0.10), matGear);
+        sc2.position.set(gm.wheelR * 0.26, strutLen * 0.39, 0); sc2.rotation.z = -0.55;
+        leg.add(sc2);
 
         var wheels = [];
         // 车架 (bogie) 或单轴
         var bogie = new THREE.Group();
         bogie.name = 'bogie';
-        g.add(bogie);
+        leg.add(bogie);
         var rows, perRow;
         if (gm.bogie) {
           rows = Math.max(1, Math.round(gm.wheels / 2));
@@ -1419,7 +1758,6 @@
           rows = 1; perRow = gm.wheels;
         }
         var rowGap = gm.wheelR * 1.30;
-        var axles = [];
         for (var ri = 0; ri < rows; ri++) {
           var zz = (ri - (rows - 1) / 2) * rowGap;
           var axle = new THREE.Mesh(new THREE.CylinderGeometry(gm.wheelR * 0.17, gm.wheelR * 0.17,
@@ -1427,7 +1765,6 @@
           axle.rotation.z = Math.PI / 2;
           axle.position.z = zz;
           bogie.add(axle);
-          axles.push(axle);
           for (var wi = 0; wi < perRow; wi++) {
             var off = (perRow === 1) ? 0 : (wi === 0 ? -1 : 1) * gm.wheelW * 0.62;
             var w2 = wheel(gm.wheelR, gm.wheelW);
@@ -1440,30 +1777,48 @@
           var beam = new THREE.Mesh(new THREE.BoxGeometry(gm.wheelW * 0.5, gm.wheelR * 0.30, rowGap * rows * 0.9), matGear);
           bogie.add(beam);
         }
-        group.add(g);
-        parts[side > 0 ? 'gearMainR' : 'gearMainL'] = g;
+        group.add(pivot);
+        parts[side > 0 ? 'gearMainR' : 'gearMainL'] = pivot;
         parts[side > 0 ? 'wheelsMainR' : 'wheelsMainL'] = wheels;
-        rig[side > 0 ? 'gearMainR' : 'gearMainL'] = g;
+        rig[side > 0 ? 'gearMainR' : 'gearMainL'] = pivot;
         rig[side > 0 ? 'bogieR' : 'bogieL'] = bogie;
-        rig[side > 0 ? 'mainBaseYR' : 'mainBaseYL'] = plan.mainAxleY;
+        rig[side > 0 ? 'mainLegR' : 'mainLegL'] = leg;
+        rig[side > 0 ? 'mainBaseYR' : 'mainBaseYL'] = pivot.position.y;
         rig.maxComp = Math.min(0.32, gm.strutLen * 0.12);
-        return g;
+        return pivot;
       }
       mainGear(-1);
       mainGear(1);
 
-      /* --- 起落架舱门 (铰链在机身腹部, 向外下方打开) --- */
+      /* --- 起落架舱门 + 舱内暗腔 (门开时可见, 关闭时被门覆盖) --- */
       function doorPanel(w, h, dpt) {
-        return new THREE.Mesh(new THREE.BoxGeometry(w, h, dpt), matBody);
+        // 门外皮 (机身色) + 内侧暗色板, 增强厚度感
+        var grp = new THREE.Group();
+        var outer = new THREE.Mesh(new THREE.BoxGeometry(w, h * 0.6, dpt), matBody);
+        outer.position.y = h * 0.2;
+        grp.add(outer);
+        var inner = new THREE.Mesh(new THREE.BoxGeometry(w, h * 0.4, dpt * 1.02), matDark);
+        inner.position.y = -h * 0.2;
+        grp.add(inner);
+        return grp;
       }
-      // 前起落架舱门 (左右两扇, 铰链在中线)
+      var bellyY = -plan.R * plan.flatBottom * 0.97;
+      var mStrutLen = Math.max(0.85, mainTrunnionY - plan.mainAxleY);
+      var fairH = 0.60;
+      var doorLenN = Math.max(0.5, nStrutLen * 0.70);
+
+      // 前起落架舱门 (左右两扇, 铰链在中线两侧, 向外下方打开)
+      var nBay = new THREE.Mesh(new THREE.BoxGeometry(gn.track * 0.95, 0.04, doorLenN), matDark);
+      nBay.position.set(0, bellyY - 0.02, gn.z + 0.2);
+      nBay.visible = false;
+      group.add(nBay);
       var dn = new THREE.Group();
       dn.name = 'gearDoorNose';
-      dn.position.set(0, -plan.R * plan.flatBottom * 0.97, gn.z + 0.2);
+      dn.position.set(0, bellyY, gn.z + 0.2);
       var dnw = gn.track * 0.55;
-      var dnl = doorPanel(dnw, 0.05, gn.strutLen * 0.60);
+      var dnl = doorPanel(dnw, 0.05, doorLenN);
       dnl.position.set(-dnw * 0.5, 0, 0);
-      var dnr = doorPanel(dnw, 0.05, gn.strutLen * 0.60);
+      var dnr = doorPanel(dnw, 0.05, doorLenN);
       dnr.position.set(dnw * 0.5, 0, 0);
       dn.add(dnl); dn.add(dnr);
       dn.visible = false;
@@ -1471,21 +1826,38 @@
       parts.gearDoorNose = dn;
       rig.doorNose = dn;
       rig.doorNosePanels = [dnl, dnr];
+      rig.noseBay = nBay;
 
       function mainDoor(side) {
         var gm = d.gear.main;
+        // 翼根下起落架舱整流罩 (鼓包): 收起后的支柱收纳其中并被遮挡,
+        // 位置跟随新的铰点高度, 顶面贴机翼下缘之下, 不会穿出机翼
+        var fairW = gm.wheelR * 2.1;
+        var fairL = Math.max(1.2, mStrutLen * 1.9);
+        var fairX = side * gm.x * 0.88;
+        var fairing = new THREE.Mesh(new THREE.BoxGeometry(fairW, fairH, fairL), matBody);
+        fairing.position.set(fairX, mainTrunnionY - fairH * 0.5, gm.z + 0.1);
+        group.add(fairing);
+        parts[side > 0 ? 'gearFairingR' : 'gearFairingL'] = fairing;
+
         var g = new THREE.Group();
         g.name = 'gearDoor' + (side > 0 ? 'R' : 'L');
-        // 铰链在机腹外侧, 门板向内覆盖起落架舱
-        g.position.set(side * (gm.x * 0.42), -plan.R * plan.flatBottom * 0.97, gm.z);
-        var w = gm.wheelR * 1.6;
-        var p = doorPanel(w, 0.06, gm.strutLen * 0.66);
+        // 铰链位于整流罩底面内侧, 门板向外下方打开
+        g.position.set(fairX, mainTrunnionY - fairH, gm.z + 0.1);
+        var w = gm.wheelR * 1.5;
+        var p = doorPanel(w, 0.06, fairL * 0.85);
         p.position.set(side * w * 0.5, 0, 0);
         g.add(p);
         g.visible = false;
         group.add(g);
         parts[side > 0 ? 'gearDoorR' : 'gearDoorL'] = g;
         rig[side > 0 ? 'doorR' : 'doorL'] = g;
+        // 对应舱内暗腔
+        var bay = new THREE.Mesh(new THREE.BoxGeometry(gm.wheelR * 1.2, 0.04, fairL * 0.8), matDark);
+        bay.position.set(fairX, mainTrunnionY - fairH - 0.02, gm.z + 0.1);
+        bay.visible = false;
+        group.add(bay);
+        rig[side > 0 ? 'mainBayR' : 'mainBayL'] = bay;
         return g;
       }
       mainDoor(-1);
@@ -1785,6 +2157,50 @@
     }
 
     /* ================================================================
+       10.7b 机体细节 (机背天线 / 静电刷 / APU 排气 / 空速管)
+             真实外形模型与程序化模型通用, 提升机体真实度
+       ================================================================ */
+    function buildDetails() {
+      var M = rig.anchors;
+      if (!M) return;
+      var i;
+      // 机背刀形天线 (2 组)
+      var bodyTopY = plan.R * plan.ryScale;
+      for (i = 0; i < 2; i++) {
+        var blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.5, 1.3), matDark);
+        blade.position.set(0, bodyTopY + 0.22, d.wingPos.z - 7 + i * 10);
+        group.add(blade);
+      }
+      // 静电放电刷 (翼尖各 3 个)
+      function wick(x, y, z, dir) {
+        var w = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.5, 4), matDark);
+        w.rotation.z = -Math.PI / 2 * dir;
+        w.position.set(x, y, z);
+        group.add(w);
+      }
+      var tR = M.tipR, tL = M.tipL;
+      for (i = 0; i < 3; i++) {
+        var fz = tR.zLE + (tR.zTE - tR.zLE) * (0.32 + i * 0.24);
+        wick(tR.x + 0.06, tR.y, fz, 1);
+        wick(tL.x - 0.06, tL.y, fz, -1);
+      }
+      // APU 排气口 (尾锥)
+      if (M.tail) {
+        var apu = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.64, 1.0, 10), matMetal);
+        apu.rotation.x = Math.PI / 2;
+        apu.position.set(0, M.tail.y, M.tail.z + 0.45);
+        group.add(apu);
+      }
+      // 机头空速管 (皮托管, 两侧)
+      for (i = -1; i <= 1; i += 2) {
+        var pit = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.1, 6), matMetal);
+        pit.rotation.x = Math.PI / 2;
+        pit.position.set(i * plan.R * 0.28, -plan.R * 0.35, plan.zN + 0.7);
+        group.add(pit);
+      }
+    }
+
+    /* ================================================================
        10.8 拖尾凝结云 (高马赫数)
        ================================================================ */
     function buildVapour() {
@@ -1861,6 +2277,7 @@
       // 先摆到静止姿态 (翼尖/舵面就位), 再按实际几何量取灯位
       try { update(1 / 60, { gearPos: 1 }); } catch (e) { /* ignore */ }
       buildLights();
+      buildDetails();
       buildVapour();
 
       // 阴影
@@ -2026,44 +2443,86 @@
       // 方向舵: +1 = 机头右偏 => 后缘向左 => 绕 Y 负向
       if (parts.rudder) parts.rudder.rotation.y = -26 * DEG * clamp(st.rudder, -1, 1);
 
-      // --- 起落架收放时序 ---
+      // --- 起落架收放时序: 门先开 -> 起落架运动 -> 门后关 ---
+      // gp: 0 = 完全收起, 1 = 放下锁定。分段映射保证动作分步、不重叠:
+      //   [0, 0.16] 舱门开启   [0.16, 0.84] 起落架收/放   [0.84, 1] 舱门关闭
       var gp = clamp01(state.gearPos === undefined ? 1 : state.gearPos);
-      // 舱门: gp 0..0.25 开启, 0.75..1 关闭 (纯位置映射, 因此无论伸出还是收起
-      // 都是"门先开 -> 起落架运动 -> 门后关")
-      var doorOpen = Math.min(smoothstep(gp * 4), smoothstep((1 - gp) * 4));
-      var gearDown = smoothstep((gp - 0.25) / 0.5);
+      var doorOpen = Math.min(smoothstep(gp / 0.16), smoothstep((1 - gp) / 0.16));
+      var gearDown = smoothstep((gp - 0.16) / 0.68);
       var stow = 1 - gearDown;                    // 0 = 放下锁定, 1 = 完全收起
+      var doorsVisible = doorOpen > 0.01;
+      var baysVisible = doorOpen > 0.05;
       if (rig.gearNose) {
-        rig.gearNose.rotation.x = -1.35 * stow;                   // 前起落架向前收起
+        // 前起落架: 绕转轴向前收起 (机头方向)
+        rig.gearNose.rotation.x = 1.50 * stow;
         rig.gearNose.position.y = rig.noseBaseY + st.comp * rig.noseMaxComp;
-        rig.gearNose.visible = (stow < 0.98 || doorOpen > 0.02);
+        rig.gearNose.visible = (stow < 0.995);
       }
       var mg;
       for (side = -1; side <= 1; side += 2) {
         var key = side > 0 ? 'gearMainR' : 'gearMainL';
         mg = rig[key];
         if (mg) {
-          mg.rotation.z = -side * 1.42 * stow;                    // 主起落架向内收起
-          mg.rotation.x = 0.42 * stow;                            // 并向后收
+          mg.rotation.z = -side * 1.55 * stow;                   // 主起落架向内收起
+          mg.rotation.x = 0.30 * stow;                           // 并略向后收
           mg.position.y = rig[side > 0 ? 'mainBaseYR' : 'mainBaseYL'] + st.comp * rig.maxComp;
-          mg.visible = (stow < 0.98 || doorOpen > 0.02);
+          mg.visible = (stow < 0.995);
           var bg = rig[side > 0 ? 'bogieR' : 'bogieL'];
-          if (bg) bg.rotation.x = (state.onGround ? 0.035 : 0.0) + 0.05 * stow + 0.02 * Math.sin(st.wheelAngle * 0.5);
+          // 车架: 地面时轻微抬头, 收起过程中前后轮倾斜收入轮舱
+          if (bg) bg.rotation.x = (state.onGround ? 0.035 : 0.0) + 0.34 * stow + 0.02 * Math.sin(st.wheelAngle * 0.5);
         }
       }
-      // 舱门开合 (左门铰链在中线左侧, 右门在右侧; 均向外下方打开)
+      // 舱门开合
       if (rig.doorNose) {
-        rig.doorNose.visible = doorOpen > 0.01;
+        rig.doorNose.visible = doorsVisible;
         for (i = 0; i < rig.doorNosePanels.length; i++) {
           var dnp = rig.doorNosePanels[i];
-          dnp.rotation.z = (i === 0 ? 1 : -1) * 1.45 * doorOpen;
+          dnp.rotation.z = (i === 0 ? 1 : -1) * 1.50 * doorOpen;
         }
       }
+      if (rig.noseBay) rig.noseBay.visible = baysVisible;
       for (side = -1; side <= 1; side += 2) {
         var dk = side > 0 ? 'doorR' : 'doorL';
         if (rig[dk]) {
-          rig[dk].visible = doorOpen > 0.01;
-          rig[dk].rotation.z = -side * 1.30 * doorOpen;      // 向外下方打开
+          rig[dk].visible = doorsVisible;
+          rig[dk].rotation.z = -side * 1.35 * doorOpen;          // 向外下方打开
+        }
+        var mbKey = side > 0 ? 'mainBayR' : 'mainBayL';
+        if (rig[mbKey]) rig[mbKey].visible = baysVisible;
+      }
+
+      // --- 模型自带起落架: 舱门开合 / 连杆折叠 / 车架上移 / 收放裁剪 ---
+      if (rig.gearDoors) {
+        // 前起舱门 (模型姿态 = 机头下表面的一部分, 即关闭): 收放过程中打开, 两端关闭;
+        // 主起外侧舱盖 (模型姿态 = 打开挂在机翼下): 收放过程中保持打开并向外张一下, 收上到位后向内合上
+        var gearTransit = Math.min(smoothstep(gp / 0.18), smoothstep((1 - gp) / 0.18));
+        var mainClose = smoothstep((stow - 0.75) / 0.25);
+        var mainFlare = 0.20 * smoothstep(stow / 0.22) * (1 - mainClose);
+        for (i = 0; i < rig.gearDoors.length; i++) {
+          var dgd = rig.gearDoors[i];
+          dgd.g.rotation[dgd.axis] = dgd.timing === 'seq'
+            ? dgd.sign * dgd.max * gearTransit
+            : dgd.sign * (dgd.max * mainClose - mainFlare);
+        }
+      }
+      if (rig.gearLinks) {
+        for (i = 0; i < rig.gearLinks.length; i++) {
+          var lgk = rig.gearLinks[i];
+          lgk.g.rotation[lgk.axis] = lgk.sign * lgk.max * stow;     // 连杆绕顶端铰点折起
+        }
+      }
+      if (rig.bogies) {
+        for (i = 0; i < rig.bogies.length; i++) {
+          var bgg = rig.bogies[i];
+          bgg.g.position.y = bgg.baseY + bgg.travel * stow;         // "起落架缩短": 车架沿支柱上移
+        }
+      }
+      if (rig.clipPlanes && rig.clipPlanes.length) {
+        // 裁剪平面随飞机姿态更新: 高于机翼/机身下表面的起落架部分被裁掉 (看起来收进了舱内)
+        group.updateMatrixWorld();
+        for (i = 0; i < rig.clipPlanes.length; i++) {
+          var cpl = rig.clipPlanes[i];
+          cpl.copy(cpl.userData.base).applyMatrix4(group.matrixWorld);
         }
       }
 
