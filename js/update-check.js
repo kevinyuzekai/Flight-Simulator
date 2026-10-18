@@ -1,4 +1,4 @@
-/* 天际航线 SkyRoute — 检查更新 (beta 0.5.1)
+/* 天际航线 SkyRoute — 检查更新 (beta 0.5.2)
    启动时 (每天最多一次) 和手动「检查更新」时读取 GitHub Releases (含预发布),
    有新版本时显示不阻塞的小提示; 离线或出错时静默。商店版 (?store=1) 按钮打开 Microsoft Store 页面。 */
 (function (global) {
@@ -10,6 +10,7 @@
   var STORE_URL = 'ms-windows-store://pdp/?productid=9P25XZZM8JXT';
   var STORE_WEB = 'https://apps.microsoft.com/detail/9P25XZZM8JXT';
 
+  function T(zh, v) { return FS.t ? FS.t(zh, v) : zh.replace(/\{(\w+)\}/g, function (m, k) { return v && k in v ? v[k] : m; }); }
   function curVersion() { return String((FS.CFG && FS.CFG.version) || '0'); }
   /** 'beta_v0.5.1' / '0.5.1-beta' → [0,5,1] */
   function parse(v) {
@@ -37,7 +38,7 @@
     el.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9999;max-width:360px;padding:12px 14px;' +
       'background:rgba(11,42,91,0.95);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:10px;' +
       'font:13px/1.5 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,0.35)';
-    el.innerHTML = html + '<button type="button" data-x style="position:absolute;top:4px;right:8px;background:none;border:0;color:#fff;font-size:16px;cursor:pointer" aria-label="关闭">×</button>';
+    el.innerHTML = html + '<button type="button" data-x style="position:absolute;top:4px;right:8px;background:none;border:0;color:#fff;font-size:16px;cursor:pointer" aria-label="' + T('关闭') + '">×</button>';
     el.querySelector('[data-x]').onclick = function () { el.remove(); };
     d.body.appendChild(el);
     if (ms) setTimeout(function () { if (el.parentNode) el.remove(); }, ms);
@@ -47,10 +48,10 @@
   function showNew(rel, ver) {
     var store = isStore();   // 商店版: 按钮打开 Microsoft Store 页面 (以 GitHub 最新版本作为信号)
     var url = store ? STORE_URL : (rel.html_url || 'https://github.com/kevinyuzekai/Flight-Simulator/releases');
-    var title = store ? ('微软商店有新版本 ' + esc(ver) + '，点击前往更新') : ('发现新版本 ' + esc(ver) + '（当前 ' + esc(curVersion()) + '）');
+    var title = store ? T('微软商店有新版本 {v}，点击前往更新', { v: esc(ver) }) : T('发现新版本 {v}（当前 {c}）', { v: esc(ver), c: esc(curVersion()) });
     var el = toast('<div style="font-weight:600;margin-bottom:4px;padding-right:16px">' + title + '</div>' +
       '<div style="opacity:0.85;margin-bottom:8px">' + esc(snippet(rel.body)) + '</div>' +
-      '<button type="button" data-open style="background:#3b82f6;color:#fff;border:0;border-radius:6px;padding:5px 12px;cursor:pointer">' + (store ? '前往微软商店' : '查看发布页') + '</button>', 30000);
+      '<button type="button" data-open style="background:#3b82f6;color:#fff;border:0;border-radius:6px;padding:5px 12px;cursor:pointer">' + T(store ? '前往微软商店' : '查看发布页') + '</button>', 30000);
     if (el) el.querySelector('[data-open]').onclick = function () {
       // Electron: setWindowOpenHandler → shell.openExternal (ms-windows-store: 失败时主进程回退到网页版商店)
       var w = null;
@@ -61,7 +62,7 @@
 
   /** manual=true 时无论结果都给出提示 */
   function check(manual) {
-    if (!global.fetch) { if (manual) toast('无法检查更新', 4000); return Promise.resolve(null); }
+    if (!global.fetch) { if (manual) toast(T('无法检查更新'), 4000); return Promise.resolve(null); }
     var cur = parse(curVersion());
     return global.fetch(API, { headers: { Accept: 'application/vnd.github+json' } }).then(function (r) {
       if (!r.ok) throw new Error('http ' + r.status);
@@ -75,10 +76,10 @@
       });
       try { global.localStorage.setItem(KEY, String(Date.now())); } catch (e) { /* */ }
       if (best && cur && cmp(bv, cur) > 0) { showNew(best, bv.join('.')); return best; }
-      if (manual) toast('已是最新版本（' + esc(curVersion()) + '）', 4000);
+      if (manual) toast(T('已是最新版本（{c}）', { c: esc(curVersion()) }), 4000);
       return null;
     }).catch(function () {
-      if (manual) toast('检查更新失败，请检查网络连接', 4000);
+      if (manual) toast(T('检查更新失败，请检查网络连接'), 4000);
       return null;
     });
   }

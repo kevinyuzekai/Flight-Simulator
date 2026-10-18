@@ -153,6 +153,8 @@
         var o = el('option');
         o.value = a.icao;
         o.textContent = a.icao + '  ' + (a.nameZh || a.name) + '  (' + (a.cityZh || a.city) + ')';
+        o.setAttribute('data-i18n-en', a.icao + '  ' + a.name + '  (' + a.city + ')');   // 非中文界面显示英文机场名
+        o.setAttribute('data-i18n-zh', o.textContent);
         if (a.icao === selected) o.selected = true;
         regions[reg].appendChild(o);
       });
@@ -251,8 +253,8 @@
     if (sum) {
       sum.innerHTML =
         '<b>' + ac.nameZh + '</b> · ' + (s.livery ? ((FS.LIVERIES.filter(function (l) { return l.id === ((FS.LIVERY_ALIASES && FS.LIVERY_ALIASES[s.livery]) || s.livery); })[0] || {}).name || '') : '') +
-        '<br>' + (dep ? dep.icao + ' ' + (dep.cityZh || dep.city) : '') + ' → ' +
-        (arr ? arr.icao + ' ' + (arr.cityZh || arr.city) : '') +
+        '<br>' + (dep ? dep.icao + ' ' + ((FS.I18N && !FS.I18N.zh()) ? dep.city : (dep.cityZh || dep.city)) : '') + ' → ' +
+        (arr ? arr.icao + ' ' + ((FS.I18N && !FS.I18N.zh()) ? arr.city : (arr.cityZh || arr.city)) : '') +
         (dist ? '  ·  大圆距离 ' + Math.round(dist) + ' nm' : '') +
         '<br>跑道 ' + (s.runwayIdent || '--') + '  ·  燃油 ' + Math.round(s.fuelPct * 100) + '%  ·  业载 ' + Math.round(s.payloadPct * 100) + '%';
     }
