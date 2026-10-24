@@ -24,7 +24,7 @@
 |---|---|---|---|
 | A350-900 | [`A350_nologo.glb`](https://github.com/amvlab/aircraft-models/blob/91d835e8e851b2317fe79af291c9fed6153fd525/models/A350_nologo.glb) | 直接使用 | 按 A350-900 尺寸缩放（66.8 m / 64.75 m） |
 | A350-1000 | 同上 | **派生** | 在 A350 模型上插入机身段：机翼前 3.85 m、机翼后 3.14 m（总长 73.79 m）。并非 A350-1000 的独立模型（例如没有六轮主起落架和加大的后缘襟翼）。 |
-| A320neo | [`A320_nologo.glb`](https://github.com/amvlab/aircraft-models/blob/91d835e8e851b2317fe79af291c9fed6153fd525/models/A320_nologo.glb) | 直接使用 | 源模型带大直径发动机短舱与鲨鳍小翼，按 A320neo 尺寸缩放 |
+| A320neo | **已替换** → Sketchfab [Airnz A320neo](https://sketchfab.com/3d-models/airnz-a320neo-93ab115c239e4e9faaf24f598452e436) by Airnz86 (CC BY 4.0)；见第 2 节表 | 替换 | 中性白 + 玻璃 + 简化；程序化起落架 |
 | A321neo | 同上 | **派生** | 在 A320 模型上插入机身段：机翼前 4.27 m、机翼后 2.67 m（总长 44.51 m）。舱门布局仍是 A320 的，不是独立的 A321neo 模型。 |
 | B737-800 | [`B737_nologo.glb`](https://github.com/amvlab/aircraft-models/blob/91d835e8e851b2317fe79af291c9fed6153fd525/models/B737_nologo.glb) | 直接使用 | 带融合式翼梢小翼，按 737-800 尺寸缩放 |
 | B787-9 | [`B787_nologo.glb`](https://github.com/amvlab/aircraft-models/blob/91d835e8e851b2317fe79af291c9fed6153fd525/models/B787_nologo.glb) | **派生** | 源模型长度相当于 787-8，插入机身段：机翼前 3.05 m、机翼后 3.04 m（总长 62.8 m） |
@@ -59,20 +59,24 @@
 
 ## 1.5 中性涂装 + 模型自带起落架的机型
 
-Sketchfab 作者以 **CC BY 4.0** 发布的模型（经 [Objaverse](https://huggingface.co/datasets/allenai/objaverse) 获取）。原用户提供的 A330-300（CGTrader “A330-300 Delta”）与 A320ceo（卡塔尔航空涂装）模型已移除。
+部分机型来自 Sketchfab（CC BY 4.0）；**A330-300** 为用户提供的 OBJ（去涂装中性白 + 玻璃分离）；**A320neo / A320ceo**（自 beta 0.5.3 共用同一模型）为 Sketchfab Airnz86「Airnz A320neo」（CC BY 4.0，MatrixTransform 装配 + 中性白 + 保留 WINDSHIELD/PLASTICGLASS + 简化至约 10 万三角面 + 程序化起落架）。
 
 | 游戏机型 | 源模型 | 作者 | 许可证 | 起落架 |
 |---|---|---|---|---|
-| A320ceo / A320neo | ["Airbus A320"](https://sketchfab.com/3d-models/790a19f65d5646539ed975c96fedb313)（A320neo 为同一模型按尺寸缩放） | Andre11230 | CC BY 4.0 | 模型自带 |
+| A320ceo | 与 A320neo 共用 ["Airnz A320neo"](https://sketchfab.com/3d-models/airnz-a320neo-93ab115c239e4e9faaf24f598452e436)（beta 0.5.3 起） | Airnz86 | CC BY 4.0 | 同 A320neo |
+| A320neo | ["Airnz A320neo"](https://sketchfab.com/3d-models/airnz-a320neo-93ab115c239e4e9faaf24f598452e436)（Sketchfab，按 A320neo 尺寸缩放） | Airnz86 | CC BY 4.0 | 程序化（源模型起落架/内饰已丢弃） |
 | A321neo | ["airbus a321"](https://sketchfab.com/3d-models/542713418c7f47ce9c71d3d0b23921e3)（原韩亚涂装已去除） | 1883 | CC BY 4.0 | 模型自带 |
 | B737-800 / B737-MAX8 | ["737 Max-8 (Free)"](https://sketchfab.com/3d-models/197ae72ceb5441efa91b8bdc2ee37050)（737-800 为同一模型按尺寸缩放） | AMGP3D | CC BY 4.0 | 模型自带 |
 | B777-300ER | ["Boeing 777- 300ER"](https://sketchfab.com/3d-models/cfe500ad3fb14b9ba950dd5403f57ec1) | Adam.White | CC BY 4.0 | 模型自带 |
-| A330-300 | ["Airbus A330"](https://sketchfab.com/3d-models/b474aa79c03148f78f607ce816839824) | Andre11230 | CC BY 4.0 | 程序化（源模型无起落架） |
+| A330-300 | 用户提供 OBJ（去涂装中性白；驾驶舱风挡为程序化 3D 玻璃贴合机头） | user-provided | 用户提供用于 SkyRoute | 程序化 |
 | C919 / E190 | SkyRoute 项目自制（blender_bot 在 Blender 中程序化建模，源文件 `assets_src/blender/`） | blender_bot | 项目自有 | 模型自带 |
 
-修改（CC BY 4.0 要求注明）：自动朝向、按游戏机型尺寸缩放、网格简化；丢弃源材质与贴图，改为中性白色自绘底图，机身/垂尾/外翼上的航司字样与标志一律重涂；
-保留模型自带起落架（拆分为前起/左主起/右主起，按游戏地面高度微调后收放）；以 base64 内嵌到 `models/ac_*.js` / `tex_*.js`。
-A350-900 / A350-1000 / B787-9 仍为第 1 节 amvlab 无标志模型（程序化起落架）。
+
+> "Airnz A320neo" by Airnz86 (https://sketchfab.com/3d-models/airnz-a320neo-93ab115c239e4e9faaf24f598452e436),
+> licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+> Modified by SkyRoute: MatrixTransform assembly, neutral white, glass extras, gear/interior dropped, decimated (~105k tris), rescaled, embedded as `models/ac_a320neo.js`.
+
+修改说明：用户 OBJ 经 `obj_pack/pack_user_obj.py` 转换——机头朝向对齐（鼻尖 −Z）、按 `config.js` 尺寸缩放、航司材质/标志重涂为中性白、玻璃与金属分到 `extras`、起落架几何丢弃改用程序化；A330 驾驶舱风挡由 `buildA330Windshield` 在机头曲面上生成。Sketchfab 来源机型的修改仍按 CC BY 4.0 要求：自动朝向、缩放、去标志、自带起落架拆分。A350-900 / A350-1000 / B787-9 仍为第 1 节 amvlab 无标志模型（程序化起落架）。
 
 ### 1.6 驾驶舱
 

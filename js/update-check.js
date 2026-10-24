@@ -1,4 +1,4 @@
-/* 天际航线 SkyRoute — 检查更新 (beta 0.5.2)
+/* 天际航线 SkyRoute — 检查更新 (beta 0.5.3)
    启动时 (每天最多一次) 和手动「检查更新」时读取 GitHub Releases (含预发布),
    有新版本时显示不阻塞的小提示; 离线或出错时静默。商店版 (?store=1) 按钮打开 Microsoft Store 页面。 */
 (function (global) {

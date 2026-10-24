@@ -12,7 +12,7 @@
      1. 模拟器全局设置
      --------------------------------------------------------------------- */
   FS.CFG = {
-    version: '0.5.2-beta',
+    version: '0.5.3-beta',
     // beta 0.3: 联网全球地景 (真实高程 + 卫星影像), 菜单 / ?online=0|1 / localStorage 'fs.onlineScenery'
     onlineScenery: (function () {
       try { var v = global.localStorage && global.localStorage.getItem('fs.onlineScenery'); if (v === '0') return false; } catch (e) { /* */ }
@@ -286,17 +286,13 @@
         wingPos: { x: 0, y: -1.05, z: 0.4 }, wingletHeight: 2.4, wingletCant: 20,
         tailSpan: 12.4, tailArea: 31.0, tailPos: { x: 0, y: 1.1, z: 13.6 }, tailSweep: 30,
         finHeight: 6.0, finArea: 21.5, finPos: { x: 0, y: 2.7, z: 14.6 }, finSweep: 35,
-        // beta 0.4.2: 采用真实外形模型 (models/ac_a320ceo.js), 起落架舱/眼位按模型实测校正
+        // beta 0.5.3: 改用与 A320neo 相同的 Airnz86 外形模型 (models/ac_a320ceo.js), 起落架/眼位同 A320neo
         fuselageRadius: 1.98, noseLength: 5.6, tailConeLength: 8.4, cockpitWindows: 6,
-        eyeOffset: 4.7,                 // 驾驶舱眼位距机头 (模型风挡实测: 机头后 1.5~4.8 m)
-        enginePos: { x: 5.75, y: -1.55, z: 3.6 },
-        engineNacelleLen: 4.6, engineNacelleDia: 2.15, pylonLen: 2.2,
+        enginePos: { x: 5.75, y: -1.45, z: 3.6 },
+        engineNacelleLen: 4.4, engineNacelleDia: 2.15, pylonLen: 2.2,
         gear: {
-          // 主起落架挂点必须位于参考点(重心)略后方: 保持 0.10/0.90 的前后载荷分配平衡
-          // (|main.z| = |nose.z| / 9), 否则停机时会持续抬头/尾坐。
-          // main.y 使 (main.y - wheelR) 等于模型轮底高度, 地面线与真实模型轮底一致。
-          nose: { x: 0, z: -14.2, y: -0.57, strutLen: 2.47, wheelR: 0.381, wheelW: 0.20, wheels: 2, track: 0.46 },
-          main: { x: 3.78, z: 1.58, y: -2.85, strutLen: 2.22, wheelR: 0.571, wheelW: 0.40, wheels: 2, bogie: false, track: 7.56 }
+          nose: { x: 0, z: -12.6, y: -2.05, strutLen: 2.3, wheelR: 0.40, wheelW: 0.25, wheels: 2, track: 0.78 },
+          main: { x: 3.80, z: 1.4, y: -2.25, strutLen: 2.7, wheelR: 0.565, wheelW: 0.28, wheels: 2, bogie: false, track: 7.59 }
         },
         doorPositions: [-11.5, -6.5, 5.0, 11.0], windowRows: 26
       },
