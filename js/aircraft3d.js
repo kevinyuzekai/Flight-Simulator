@@ -193,9 +193,16 @@
      (在机头曲面上按角点双线性采样贴合, 不再依赖贴图上的手绘图案)
      每片 4 个角点 [z, x]: A=前内 B=前外 C=后外 D=后内; 右舷 3 片, 左舷镜像 */
   var A330_WIND = [
-    [[-28.90, 0.04], [-28.40, 0.72], [-26.80, 0.94], [-27.10, 0.04]], // 主风挡
-    [[-28.40, 0.82], [-27.70, 1.28], [-26.68, 1.48], [-26.88, 0.94]], // 固定窗
-    [[-27.10, 1.42], [-26.55, 1.62], [-25.90, 1.60], [-26.35, 1.45]]  // 滑动窗
+    // 角点 [z, x]; 贴合用户 OBJ 机头开孔 rim (鼻尖 z≈-31.85, 风挡带 y≈2.0–2.6)
+    [[-30.30, 0.05], [-29.80, 0.90], [-29.10, 1.20], [-29.30, 0.05]], // 主风挡
+    [[-29.80, 1.00], [-29.30, 1.35], [-28.70, 1.50], [-28.95, 1.15]], // 固定窗
+    [[-29.00, 1.35], [-28.55, 1.55], [-28.20, 1.50], [-28.45, 1.30]]  // 滑动窗
+  ];
+  var A320_WIND = [
+    // A320ceo: 开孔 rim z≈-17.4..-15.1 y≈1.3–2.6
+    [[-17.30, 0.05], [-16.90, 0.70], [-16.20, 0.95], [-16.45, 0.05]],
+    [[-16.90, 0.80], [-16.40, 1.25], [-15.60, 1.45], [-15.95, 1.05]],
+    [[-16.00, 1.30], [-15.50, 1.55], [-15.15, 1.50], [-15.45, 1.25]]
   ];
 
   /** 擦除 A330 自绘底图里的旧矩形风挡图案 (旧图案不再使用) */
@@ -211,20 +218,23 @@
   }
 
   /** 在机模机头曲面上生成风挡玻璃网格 (真正的 3D 部件) */
-  function buildA330Windshield(bodyPack, group, parts, mats) {
+  function buildA330Windshield(bodyPack, group, parts, mats, windList, noseCut) {
+    windList = windList || A330_WIND; noseCut = (noseCut !== undefined) ? noseCut : -22.5;
     var d2 = decodePacked(bodyPack), P = d2.pos, IDX = d2.idx;
     // 机头上半表面三角形
     var tris = [], t;
     for (t = 0; t < IDX.length; t += 3) {
       var a = IDX[t], b = IDX[t + 1], c = IDX[t + 2];
-      if (P[a * 3 + 2] > -22.5 || P[b * 3 + 2] > -22.5 || P[c * 3 + 2] > -22.5) continue;
-      if (P[a * 3 + 1] < -0.1 || P[b * 3 + 1] < -0.1 || P[c * 3 + 1] < -0.1) continue;
+      if (P[a * 3 + 2] > noseCut || P[b * 3 + 2] > noseCut || P[c * 3 + 2] > noseCut) continue;
+      if (P[a * 3 + 1] < 0.5 || P[b * 3 + 1] < 0.5 || P[c * 3 + 1] < 0.5) continue;
       tris.push([a, b, c]);
     }
     if (!tris.length) return;
     // 由 (z,x) 反查机头曲面点 (重心插值)
     function surf(z, x) {
-      for (var i = 0; i < tris.length; i++) {
+      // 同一 (z,x) 可能命中机腹与机头上表面: 取 Y 最大的命中, 避免风挡玻璃拉到机腹形成黑刺
+      var best = null, bestY = -1e9, i;
+      for (i = 0; i < tris.length; i++) {
         var tr = tris[i], a = tr[0], b = tr[1], c = tr[2];
         var z0 = P[a * 3 + 2], x0 = P[a * 3], z1 = P[b * 3 + 2], x1 = P[b * 3], z2 = P[c * 3 + 2], x2 = P[c * 3];
         var dd = (x1 - x2) * (z0 - z2) + (z2 - z1) * (x0 - x2);
@@ -233,11 +243,14 @@
         var l1 = ((x2 - x0) * (z - z2) + (z0 - z2) * (x - x2)) / dd;
         var l2 = 1 - l0 - l1;
         if (l0 < -1e-6 || l1 < -1e-6 || l2 < -1e-6) continue;
-        return [l0 * P[a * 3] + l1 * P[b * 3] + l2 * P[c * 3],
-                l0 * P[a * 3 + 1] + l1 * P[b * 3 + 1] + l2 * P[c * 3 + 1],
-                l0 * P[a * 3 + 2] + l1 * P[b * 3 + 2] + l2 * P[c * 3 + 2]];
+        var py = l0 * P[a * 3 + 1] + l1 * P[b * 3 + 1] + l2 * P[c * 3 + 1];
+        if (py > bestY) {
+          bestY = py;
+          best = [l0 * P[a * 3] + l1 * P[b * 3] + l2 * P[c * 3], py,
+                  l0 * P[a * 3 + 2] + l1 * P[b * 3 + 2] + l2 * P[c * 3 + 2]];
+        }
       }
-      return null;
+      return best;
     }
     function surfNormal(z, x) {
       var h = 0.10;
@@ -289,8 +302,10 @@
       return g;
     }
     var matGlass = new THREE.MeshStandardMaterial({
-      color: 0x151a22, metalness: 0.62, roughness: 0.14,
-      side: THREE.DoubleSide, envMapIntensity: 1.4
+      color: 0x243546, metalness: 0.55, roughness: 0.12,
+      side: THREE.DoubleSide, envMapIntensity: 1.8,
+      transparent: true, opacity: 0.92, depthWrite: true,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
     });
     var matFrame = new THREE.MeshStandardMaterial({
       color: 0x9aa2ae, metalness: 0.35, roughness: 0.55, side: THREE.DoubleSide
@@ -299,12 +314,12 @@
     var wg = new THREE.Group();
     wg.name = 'windshield';
     var k, s, pane;
-    for (k = 0; k < A330_WIND.length; k++) {
+    for (k = 0; k < windList.length; k++) {
       for (s = 0; s < 2; s++) {                       // 0=右舷, 1=左舷(镜像)
-        pane = A330_WIND[k].map(function (p) { return [p[0], s ? -p[1] : p[1]]; });
-        var gf = paneGeo(pane, 1.16, 0.012);          // 窗框
+        pane = windList[k].map(function (p) { return [p[0], s ? -p[1] : p[1]]; });
+        var gf = paneGeo(pane, 1.14, 0.028);          // 窗框
         if (gf) { var mf = new THREE.Mesh(gf, matFrame); wg.add(mf); }
-        var gg = paneGeo(pane, 1.00, 0.024);          // 玻璃
+        var gg = paneGeo(pane, 0.98, 0.048);          // 玻璃 (外移避免封孔蒙皮 z-fight)
         if (gg) { var mg = new THREE.Mesh(gg, matGlass); wg.add(mg); }
       }
     }
@@ -825,6 +840,11 @@
       groundY = Math.min(gMain.y - gMain.wheelR, gNose.y - gNose.wheelR,
         asset.anchors.nacelleBottom - engClear);
     }
+    if (asset && asset.gear && asset.gear.nose && asset.gear.nose.wheelBottom !== undefined) {
+      // 模型自带起落架 (A320neo/ceo): 地面线 = 模型机轮最低点 (机体以模型自己的起落架停在地面上)
+      groundY = Math.min(asset.gear.nose.wheelBottom,
+        asset.gear.mainL ? asset.gear.mainL.wheelBottom : 0, asset.gear.mainR ? asset.gear.mainR.wheelBottom : 0);
+    }
 
     // ---- 垂尾/平尾 ----
     var finTaper = 0.36, stabTaper = 0.38;
@@ -1077,7 +1097,11 @@
       group.add(body);
       parts.fuselage = body;
       // A330: 用机模机头曲面生成真实的 3D 驾驶舱风挡玻璃 (仅旧资产需要; 新资产自带风挡几何)
-      if (asset.texId === 'A330') buildA330Windshield(asset.body, group, parts, mats);
+      // 旧贴图资产 texId=A330, 或新用户 OBJ windshield 标记
+      if (asset.texId === 'A330' || asset.windshield === 'a330')
+        buildA330Windshield(asset.body, group, parts, mats, A330_WIND, -22.5);
+      else if (asset.windshield === 'a320')
+        buildA330Windshield(asset.body, group, parts, mats, A320_WIND, -12.0);
       // beta 0.4.2: 多部件分色资产 (蒙皮/舷窗玻璃/垂尾/标志/金属灰) —— 用模型自带固定颜色, 不跟随菜单涂装
       var exs = asset.extras;
       if (exs && exs.length) {
@@ -1090,6 +1114,16 @@
             // 空心壳体部件 (如短舱) 需要双面渲染, 否则从进气口能看到"透明"
             side: ex.doubleSide ? THREE.DoubleSide : THREE.FrontSide, envMapIntensity: 1.15
           });
+          if (ex.opacity !== undefined && ex.opacity < 1) {
+            matEx.transparent = true;
+            matEx.opacity = ex.opacity;
+            matEx.depthWrite = true;
+            matEx.envMapIntensity = 1.6;
+            // 玻璃与蒙皮共面开孔边: 略推近相机, 避免 z-fight 闪黑锯齿
+            matEx.polygonOffset = true;
+            matEx.polygonOffsetFactor = -2;
+            matEx.polygonOffsetUnits = -2;
+          }
           mats.push(matEx); em.push(matEx);
           var meshEx = new THREE.Mesh(geoFromPacked(ex.mesh), matEx);
           meshEx.name = 'assetPart' + e;                 // 名字避开 measureAnchors 的排除关键词
@@ -1564,6 +1598,11 @@
         addParts(g, A.parts, plane);
         parts[def.name] = g; rig[def.name] = g;
         rig[def.baseY] = A.pivot[1];
+        if (A.wheels && A.wheels.length && A.wheelBottom !== undefined) {   // 轮底探测点 (组局部坐标)
+          rig.gearProbe = rig.gearProbe || {};
+          rig.gearProbe[def.key] = { g: g, baseY: A.pivot[1], ext: 0,
+            x: A.wheels[0].pivot[0] - A.pivot[0], y: A.wheelBottom - A.pivot[1], z: A.wheels[0].pivot[2] - A.pivot[2] };
+        }
         var i, arr = parts[def.wheelArr] || (parts[def.wheelArr] = []);
         if (A.bogie) {                             // 车架 (收上时沿支柱上移)
           var B = A.bogie, bg = new THREE.Group();
@@ -2455,7 +2494,7 @@
       if (rig.gearNose) {
         // 前起落架: 绕转轴向前收起 (机头方向)
         rig.gearNose.rotation.x = 1.50 * stow;
-        rig.gearNose.position.y = rig.noseBaseY + st.comp * rig.noseMaxComp;
+        rig.gearNose.position.y = rig.noseBaseY + (state.gearCompM ? state.gearCompM.nose : st.comp * rig.noseMaxComp);
         rig.gearNose.visible = (stow < 0.995);
       }
       var mg;
@@ -2465,7 +2504,7 @@
         if (mg) {
           mg.rotation.z = -side * 1.55 * stow;                   // 主起落架向内收起
           mg.rotation.x = 0.30 * stow;                           // 并略向后收
-          mg.position.y = rig[side > 0 ? 'mainBaseYR' : 'mainBaseYL'] + st.comp * rig.maxComp;
+          mg.position.y = rig[side > 0 ? 'mainBaseYR' : 'mainBaseYL'] + (state.gearCompM ? state.gearCompM[side > 0 ? 'mainR' : 'mainL'] : st.comp * rig.maxComp);
           mg.visible = (stow < 0.995);
           var bg = rig[side > 0 ? 'bogieR' : 'bogieL'];
           // 车架: 地面时轻微抬头, 收起过程中前后轮倾斜收入轮舱
@@ -2489,6 +2528,31 @@
         }
         var mbKey = side > 0 ? 'mainBayR' : 'mainBayL';
         if (rig[mbKey]) rig[mbKey].visible = baysVisible;
+      }
+
+      // --- 模型自带起落架 (A320neo/ceo): 支柱伸缩使每个机轮轮底正好落在地面 ---
+      // 飞行动力学的接地点与模型轮位不完全重合, 因此按渲染后机轮实际离地高度逐帧修正支柱伸缩量
+      // (压缩 = 上移, 地面上抬头/低头时允许伸长); 空中收放时恢复模型原始姿态。
+      if (rig.gearProbe) {
+        var gpv = rig._gpv || (rig._gpv = new THREE.Vector3());
+        for (var gpk in rig.gearProbe) {
+          var GPk = rig.gearProbe[gpk];
+          var ggap = null;
+          if (state.groundGapAt && GPk.g.visible && stow < 0.001) {
+            GPk.g.position.y = GPk.baseY + GPk.ext;
+            GPk.g.updateWorldMatrix(true, false);
+            gpv.set(GPk.x, GPk.y, GPk.z).applyMatrix4(GPk.g.matrixWorld);
+            ggap = state.groundGapAt(gpv);
+          }
+          if (ggap === null || ggap === undefined || !isFinite(ggap)) {
+            GPk.ext = U.damp(GPk.ext, 0, 0.25, dt);
+          } else {
+            var tgt = GPk.ext - ggap;
+            if (!state.onGround) tgt = Math.max(0, tgt);           // 空中: 只压缩, 不伸长
+            GPk.ext = clamp(tgt, -0.45, 0.60);
+          }
+          GPk.g.position.y = GPk.baseY + GPk.ext;
+        }
       }
 
       // --- 模型自带起落架: 舱门开合 / 连杆折叠 / 车架上移 / 收放裁剪 ---

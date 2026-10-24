@@ -1307,10 +1307,14 @@
       this.contactForce = 0;
       this._groundForceBody = { x: 0, y: 0, z: 0 };
       this.gearCompression = U.damp(this.gearCompression, 0, 0.2, dt);
+      this.gearCompM = null;
       return;
     }
 
     var gears = this._makeGearList();
+    // 每个起落架的实际压缩量 (米), 供三维模型精确抬起机轮 (修正机轮陷入跑道)
+    var gcm = this.gearCompM || (this.gearCompM = {});
+    for (var gi = 0; gi < gears.length; gi++) gcm[gears[gi].name] = 0;
 
     var R = Q.toMatrix(this.q);
     var anyContact = false;
@@ -1356,6 +1360,7 @@
       anyContact = true;
       var comp = U.clamp(-gap, 0, gg.maxTravel);
       if (comp > maxComp) maxComp = comp;
+      gcm[gg.name] = comp;
 
       // 弹簧-阻尼 (静态压缩约为行程的 35%)
       var fShare = (gg.name === 'nose') ? 0.10 : 0.90 / (gears.length - 1);

@@ -1,0 +1,30 @@
+[package]
+name = "skyroute"
+version = "0.5.4"
+description = "天际航线 SkyRoute (WebView2 shell)"
+authors = ["kevinyuzekai"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+serde_json = "1"
+rusty-leveldb = "3"
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[patch.crates-io]
+tauri-codegen = { path = "vendor/tauri-codegen" }

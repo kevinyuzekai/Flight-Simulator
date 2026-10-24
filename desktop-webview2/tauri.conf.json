@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "天际航线 SkyRoute",
+  "mainBinaryName": "SkyRoute",
+  "version": "0.5.4",
+  "identifier": "com.kevinyuzekai.skyroute",
+  "build": { "frontendDist": "app" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "publisher": "kevinyuzekai",
+    "copyright": "© 2026 kevinyuzekai",
+    "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } }
+  }
+}

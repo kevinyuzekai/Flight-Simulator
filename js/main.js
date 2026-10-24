@@ -443,6 +443,9 @@
     // 始终精确压在地面上。
     var modelGroundY = (this.aircraftModel.plan && this.aircraftModel.plan.groundY) || 0;
     var bodyOffset = this.fm.getGroundClearance() + modelGroundY;   // 机体 z 轴向下为正
+    // 跑道/滑行道道面网格画在地形高度 +0.06 m (runways.js), 物理接地面是地形本身;
+    // 三维模型同样抬高 0.06 m, 机轮才压在可见道面上而不是陷进去 (beta 0.5.3 穿模修正)
+    bodyOffset -= 0.06;
     this.axisHolder.position.set(0, 0, bodyOffset);
     this._modelGroundOffset = bodyOffset;
     this.axisHolder.add(this.aircraftModel.group);
@@ -846,6 +849,8 @@
         n1R: fm.engines[1] ? fm.engines[1].n1 : (fm.engines[0] ? fm.engines[0].n1 : 0),
         wingFlex: st.wingFlex,
         gearCompression: fm.gearCompression,
+        gearCompM: fm.gearCompM || null,
+        groundGapAt: this._groundGapAt || (this._groundGapAt = this._makeGroundGap()),
         wheelSpin: fm.wheelSpin,
         brakeGlow: U.clamp01((Math.max.apply(null, fm.brakeTemp) - 200) / 500),
         onGround: fm.onGround,
@@ -855,6 +860,20 @@
         time: fm.time
       });
     }
+  };
+
+  /** 渲染世界坐标中某点相对 (跑道) 地面的高度 (米), 供模型自带起落架让轮底贴地 */
+  Sim.prototype._makeGroundGap = function () {
+    var self = this, rp = new this.THREE.Vector3();
+    return function (v) {
+      var fm = self.fm;
+      if (!fm || !self.aircraftRoot) return null;
+      self.aircraftRoot.getWorldPosition(rp);
+      var x = v.x + (fm.pos.x - rp.x), y = v.y + (fm.pos.y - rp.y), z = v.z + (fm.pos.z - rp.z);
+      var gh = fm.groundHeightAt(x, z);
+      if (gh === null || gh === undefined || !isFinite(gh)) return null;
+      return y - (gh + 0.06);          // 跑道道面绘制在地形之上 0.06 m (runways.js)
+    };
   };
 
   /* ---------------------------------------------------------------------
