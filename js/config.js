@@ -12,7 +12,7 @@
      1. 模拟器全局设置
      --------------------------------------------------------------------- */
   FS.CFG = {
-    version: '0.5.4-beta',
+    version: '0.5.5-beta',
     // beta 0.3: 联网全球地景 (真实高程 + 卫星影像), 菜单 / ?online=0|1 / localStorage 'fs.onlineScenery'
     onlineScenery: (function () {
       try { var v = global.localStorage && global.localStorage.getItem('fs.onlineScenery'); if (v === '0') return false; } catch (e) { /* */ }
@@ -137,9 +137,9 @@
         cockpitWindows: 6,
         enginePos: { x: 16.6, y: -1.55, z: 5.6 },
         engineNacelleLen: 7.4, engineNacelleDia: 3.15, pylonLen: 3.6,
-        gear: {
-          nose: { x: 0, z: -21.5, y: -3.05, strutLen: 3.4, wheelR: 0.62, wheelW: 0.42, wheels: 2, track: 1.1 },
-          main: { x: 5.65, z: 2.6, y: -3.25, strutLen: 4.0, wheelR: 1.13, wheelW: 0.42, wheels: 4, bogie: true, track: 11.3 }
+        gear: {   // 按真机 (机头→前起 ≈6.1 m, 轴距 28.7 m, 主轮距 10.6 m), 模型机头 z=-32.40
+          nose: { x: 0, z: -26.3, y: -3.05, strutLen: 3.4, wheelR: 0.62, wheelW: 0.42, wheels: 2, track: 1.1 },
+          main: { x: 5.3, z: 2.4, y: -3.25, strutLen: 4.0, wheelR: 1.13, wheelW: 0.42, wheels: 4, bogie: true, track: 10.6 }
         },
         doorPositions: [-20.5, -12.0, 8.5, 17.5],
         windowRows: 46
@@ -195,9 +195,9 @@
         fuselageRadius: 2.96, noseLength: 9.2, tailConeLength: 15.0, cockpitWindows: 6,
         enginePos: { x: 16.6, y: -1.6, z: 4.2 },
         engineNacelleLen: 7.6, engineNacelleDia: 3.25, pylonLen: 3.6,
-        gear: {
-          nose: { x: 0, z: -24.0, y: -3.05, strutLen: 3.4, wheelR: 0.62, wheelW: 0.42, wheels: 2, track: 1.1 },
-          main: { x: 5.65, z: 3.2, y: -3.25, strutLen: 4.1, wheelR: 1.16, wheelW: 0.44, wheels: 6, bogie: true, track: 11.3 }
+        gear: {   // 按真机 (机头→前起 ≈6.1 m, 轴距 32.5 m, 主轮距 10.6 m), 模型机头 z=-35.90
+          nose: { x: 0, z: -29.8, y: -3.05, strutLen: 3.4, wheelR: 0.62, wheelW: 0.42, wheels: 2, track: 1.1 },
+          main: { x: 5.3, z: 2.7, y: -3.25, strutLen: 4.1, wheelR: 1.16, wheelW: 0.44, wheels: 6, bogie: true, track: 10.6 }
         },
         doorPositions: [-23.0, -13.0, 10.0, 20.0], windowRows: 51
       },
@@ -589,9 +589,9 @@
         fuselageRadius: 2.98, noseLength: 9.0, tailConeLength: 14.0, cockpitWindows: 4,
         enginePos: { x: 15.4, y: -1.6, z: 4.6 },
         engineNacelleLen: 7.0, engineNacelleDia: 3.00, pylonLen: 3.4,
-        gear: {
-          nose: { x: 0, z: -21.0, y: -3.0, strutLen: 3.3, wheelR: 0.60, wheelW: 0.42, wheels: 2, track: 1.1 },
-          main: { x: 5.6, z: 2.6, y: -3.2, strutLen: 4.0, wheelR: 1.12, wheelW: 0.44, wheels: 4, bogie: true, track: 11.2 }
+        gear: {   // 起落架位置按真机实测 (机头→前起 5.7 m, 轴距 25.8 m, 主轮距 9.8 m), 从模型机头 z=-30.41 量起
+          nose: { x: 0, z: -24.7, y: -3.0, strutLen: 3.3, wheelR: 0.60, wheelW: 0.42, wheels: 2, track: 1.1 },
+          main: { x: 4.9, z: 1.1, y: -3.2, strutLen: 4.0, wheelR: 1.12, wheelW: 0.44, wheels: 4, bogie: true, track: 9.8 }
         },
         doorPositions: [-20.0, -11.5, 8.5, 18.5], windowRows: 42
       },

@@ -1606,15 +1606,20 @@
     loadAircraft: function (typeKey) {
       try {
         var DB = FS.AIRCRAFT_DB;
-        var db = DB ? DB[typeKey] : null;
+        // 所有机型共用同一套音色 (以 A320neo 的发动机参数为基准), 不再按机型区分
+        var db = DB ? (DB['A320neo'] || DB[typeKey]) : null;
         if (!db || !db.engines) {
           if (typeKey) FS.Log.warn('audio.js: 未找到机型音色 ' + typeKey + ', 使用默认音色');
           prof = defaultProfile();
         } else {
           var mc = (db._aero && db._aero.machCrit) ? db._aero.machCrit : 0.78;
-          prof = buildProfile(db.engines, mc, typeKey);
+          prof = buildProfile(db.engines, mc, 'shared');
         }
         if (!_ready) { _pendingType = typeKey; return; }
+        // 修正 (0.5.4 后): 返回主菜单时 stop() 会关闭静音闸门, 之后换任何机型起飞都没有声音;
+        // 新航班开始时重新打开闸门 (主音量 / 静音设置仍由 masterGain 控制, 不受影响)
+        _silenced = false;
+        try { if (killGain) ramp(killGain.gain, 1, 0.08); } catch (eK) { }
         // 按发动机数量调整声像与启用状态
         var cnt = prof.eng.count;
         if (engVoice[0]) ramp(engVoice[0].pan.pan ? engVoice[0].pan.pan : null, cnt >= 2 ? -0.55 : -0.12, 0.3);

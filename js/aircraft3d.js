@@ -1876,7 +1876,8 @@
         var fairX = side * gm.x * 0.88;
         var fairing = new THREE.Mesh(new THREE.BoxGeometry(fairW, fairH, fairL), matBody);
         fairing.position.set(fairX, mainTrunnionY - fairH * 0.5, gm.z + 0.1);
-        group.add(fairing);
+        // 0.5.5: 用户反馈 "轮子上面不要有一个方块" —— 此整流罩方块不再显示 (787/A350 程序化起落架)
+        fairing.visible = false;
         parts[side > 0 ? 'gearFairingR' : 'gearFairingL'] = fairing;
 
         var g = new THREE.Group();
