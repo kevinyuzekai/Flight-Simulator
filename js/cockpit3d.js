@@ -160,14 +160,14 @@
         '  float h = 1.0, rough = uRough;',
         '#ifdef USE_MAP',
         '  h = dot(texture2D(map, vUv).rgb, vec3(0.3333));',
-        '  vec2 dH = vec2(dFdx(h), dFdy(h)) * 0.004 * uBump;',
+        '  vec2 dH = clamp(vec2(dFdx(h), dFdy(h)), -0.25, 0.25) * 0.004 * uBump;',
         '  vec3 sx = dFdx(vPV), sy = dFdy(vPV), r1 = cross(sy, N), r2 = cross(N, sx); float det = dot(sx, r1);',
         '  N = normalize(abs(det) * N - sign(det) * (dH.x * r1 + dH.y * r2));',
-        '  rough = clamp(uRough - (h - 0.93) * 1.5, 0.08, 1.0);',
+        '  rough = clamp(uRough - (h - 0.93) * 0.6, 0.35, 1.0);',   // 0.6.1: 亮字/亮纹理不再变成镜面 → 去掉白色亮点闪烁
         '#endif',
         '  vec3 V = normalize(-vPV), Lk = normalize(uKeyV), H = normalize(Lk + V);',
         '  float ndl = max(dot(N, Lk), 0.0);',
-        '  float sp = pow(max(dot(N, H), 0.0), mix(90.0, 6.0, rough)) * (1.0 - rough) * (1.0 - rough) * 0.5;',
+        '  float sp = min(pow(max(dot(N, H), 0.0), mix(48.0, 6.0, rough)) * (1.0 - rough) * (1.0 - rough) * 0.5, 0.18);',
         '  float fr = pow(1.0 - max(dot(N, V), 0.0), 5.0) * (1.0 - rough) * 0.25;',
         '  outgoingLight = outgoingLight * (uAmb + uKeyI * ndl) + vec3(1.0, 0.98, 0.94) * (sp * ndl + fr) * uKeyI;',
         '  vec3 alb = diffuseColor.rgb * uInvB;',
@@ -412,8 +412,10 @@
     this.mcMat = this._mat(0x3a2a04, { flat: true, toneMapped: false, emissive: true });
     var mx = ex + ew / 2 + 0.05 * k;
     for (var s2 = -1; s2 <= 1; s2 += 2) {
-      this._plane(0.04, 0.026, this.mwMat, s2 * mx, y + 0.016, z + 0.004, tilt);
-      this._plane(0.04, 0.026, this.mcMat, s2 * mx, y - 0.016, z + 0.004, tilt);
+      var pw = this._plane(0.04, 0.026, this.mwMat, s2 * mx, y + 0.016, z + 0.004, tilt);
+      var pc = this._plane(0.04, 0.026, this.mcMat, s2 * mx, y - 0.016, z + 0.004, tilt);
+      pw.userData.hit = pc.userData.hit = function () { if (FS.Alerts) FS.Alerts.ack(); };   // 0.6.1: 按灯确认 / 消音
+      this.clickables.push(pw, pc);
     }
   };
 
@@ -456,8 +458,15 @@
       // 斜边显示器框: 外框 (凸起) + 内倒角
       self._box(w + 0.034, du + 0.034, 0.012, M.frame, x, y, 0.002, 0, 0, 0, pg);
       self._box(w + 0.020, du + 0.020, 0.016, M.bezel, x, y, 0.002, 0, 0, 0, pg);
+      // 0.6.1: 显示器细节 — 上沿遮光檐、四角螺钉、内框倒角条 (纯几何, 无新贴图)
+      self._box(w + 0.030, 0.006, 0.030, M.bezel, x, y + du / 2 + 0.013, 0.020, -0.35, 0, 0, pg);
+      [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(function (c) { scr.push([x + c[0] * (w / 2 + 0.0075), y + c[1] * (du / 2 + 0.0075)]); });
+      self._box(w + 0.004, 0.0025, 0.004, M.frame, x, y - du / 2 - 0.002, 0.0115, 0, 0, 0, pg);
+      self._box(0.0025, du + 0.004, 0.004, M.frame, x - w / 2 - 0.002, y, 0.0115, 0, 0, 0, pg);
+      self._box(0.0025, du + 0.004, 0.004, M.frame, x + w / 2 + 0.002, y, 0.0115, 0, 0, 0, pg);
       return self._plane(w, du, dmat[key], x, y, 0.0105, 0, 0, 0, pg);
     }
+    var scr = [];
     var ex = this.eyeX, dy = -(0.014 + du / 2);
     var cxW = L.aspect > 1 ? Math.max(cw, dw / 2 + 0.03) : cw;
     var pfdX = ex - dw / 2 - 0.014, ndX = pfdX + dw + 0.028;
@@ -471,6 +480,12 @@
       upper: L.fam === 'b787' ? screen('upper', 0, dy - du - 0.03, du * 1.05) : screen('upper', 0, dy, Math.min(dw, 2 * (-ndX - dw / 2) - 0.03)),
       lower: L.lowerCenter ? screen('lower', 0, dy - du - 0.03, du) : null
     };
+    if (scr.length) {   // 0.6.1: 所有显示器螺钉合并为一个 InstancedMesh (1 次绘制)
+      var THREEi = this.THREE, sg = new THREEi.CylinderGeometry(0.0022, 0.0022, 0.003, 8); sg.rotateX(Math.PI / 2);
+      var im = new THREEi.InstancedMesh(sg, this._mat(0x8a9097, { rough: 0.45 }), scr.length), mm = new THREEi.Matrix4();
+      scr.forEach(function (q, i) { mm.makeTranslation(q[0], q[1], 0.0115); im.setMatrixAt(i, mm); });
+      im.frustumCulled = false; this._geoms.push(sg); pg.add(im);
+    }
     if (L.hud) {
       var hm = this._mat(0x9fe6c0, { flat: true, transparent: true, opacity: 0.16, toneMapped: false });
       hm.depthWrite = false;
@@ -2221,7 +2236,7 @@
         var ev = this._efisValues(), es = JSON.stringify(ev);
         if (es !== this._sig.efis) { this._sig.efis = es; this._drawEFIS(ev); }
         // 主警告 / 主警戒 / 起落架灯
-        var mw = !!(st.masterWarning || st.stallWarning || st.stickShaker), mc = !!st.masterCaution;
+        var AL = FS.Alerts, mw = !!(st.masterWarning || st.stallWarning || st.stickShaker || AL && AL.lamps.mw), mc = !!(st.masterCaution || AL && AL.lamps.mc);
         var blink = mw && (Math.floor(Date.now() / 400) % 2 === 0);
         this.mwMat.color.setHex(mw ? (blink ? 0xff2a1a : 0x9a1408) : 0x3a0806);
         this.mcMat.color.setHex(mc ? 0xffb000 : 0x3a2a04);

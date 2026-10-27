@@ -233,7 +233,6 @@
       var fpm = Math.abs(e.vsFpm);
       var q = fpm < 150 ? '非常柔和' : fpm < 300 ? '良好' : fpm < 600 ? '偏重' : '重着陆';
       self.hud.notify('接地 ' + Math.round(e.vsFpm) + ' fpm · ' + q, fpm > 600 ? 'warn' : 'info', 4000);
-      if (fpm > 600) self.audio.playCue('master_caution');
     });
     FS.Bus.on('fm:hardLanding', function (e) {
       self.hud.notify('重着陆! ' + Math.round(e.vs) + ' fpm — 请检查机体', 'error', 8000);
@@ -728,84 +727,76 @@
      GPWS 近地警告
      --------------------------------------------------------------------- */
   Sim.prototype._updateGPWS = function (dt, st) {
-    var g = this.gpws;
+    // 0.6.1: 语音 GPWS (系统语音合成, 无音频文件); 无语音时退回原合成提示音
+    var g = this.gpws, AL = FS.Alerts;
     var agl = st.raFt !== undefined ? st.raFt : st.aglFt;
-    var vs = st.vsFpm;
+    var vs = st.vsFpm, ias = st.iasKt;
     var onGround = st.onGround;
-
-    var callout = function (name, cooldown, cue) {
+    var boeing = AL ? AL.maker() === 'boeing' : false;
+    var self = this;
+    var callout = function (name, cooldown, cue, text, pri) {
       var last = g.calloutTimes[name] || -999;
       if (st.time - last < cooldown) return;
       g.calloutTimes[name] = st.time;
-      if (cue) this.audio.playCue(cue);
-    }.bind(this);
+      if (text && AL) AL.say(text, pri || 2, cue);
+      else if (cue) self.audio.playCue(cue);
+    };
 
     if (onGround) {
       g.terrain = false; g.pullUp = false; g.sinkRate = false; g.glideslope = false;
-      g.lastAgl = 0;
+      g.lastAgl = 0; g.toPhase = true; g.toMaxAgl = 0;
       return;
     }
+    if (g.toPhase) { g.toMaxAgl = Math.max(g.toMaxAgl || 0, agl); if (agl > 1500 || st.gearPos > 0.99 && vs < -500 && agl < 800 && g.toMaxAgl > 1000) g.toPhase = false; }
 
-    /* ---- 下沉率警告 ---- */
+    /* ---- Mode 1 下沉率 ---- */
     var sinkLimit = agl < 500 ? 1100 : (agl < 1500 ? 1400 : 2000);
-    if (agl < 2500 && vs < -sinkLimit && vs > -6000) {
-      if (!g.sinkRate) { g.sinkRate = true; callout('sink', 5, 'gpws_sink_rate'); }
-    } else if (vs > -sinkLimit * 0.7) {
-      g.sinkRate = false;
-    }
+    if (agl > 30 && agl < 2500 && vs < -sinkLimit && vs > -6000) {
+      g.sinkRate = true; callout('sink', 3, 'gpws_sink_rate', 'sink rate', 3);
+    } else if (vs > -sinkLimit * 0.7) g.sinkRate = false;
 
-    /* ---- 地形接近率 (简化) ---- */
+    /* ---- Mode 2 地形接近率 (简化) ---- */
     var terrainClosure = -vs;
-    if (agl < 1200 && terrainClosure > 1800) {
-      if (!g.terrain) {
-        g.terrain = true;
-        this.hud.notify('TERRAIN — 拉起!', 'error', 5000);
-      }
-      callout('terrain', 2.2, terrainClosure > 3000 ? 'gpws_pull_up' : 'gpws_terrain');
+    if (agl < 1200 && agl > 30 && terrainClosure > 1800) {
+      if (!g.terrain) { g.terrain = true; this.hud.notify('TERRAIN — 拉起!', 'error', 5000); }
       g.pullUp = terrainClosure > 3000;
-    } else if (terrainClosure < 1000 || agl > 1600) {
-      g.terrain = false; g.pullUp = false;
+      if (g.pullUp) callout('terrain', 1.6, 'gpws_pull_up', 'pull up', 5);
+      else callout('terrain', 2.2, 'gpws_terrain', 'terrain, terrain', 4);
+    } else if (terrainClosure < 1000 || agl > 1600) { g.terrain = false; g.pullUp = false; }
+
+    /* ---- Mode 3 起飞后掉高度 ---- */
+    if (g.toPhase && agl > 50 && agl < 1500 && vs < -300) callout('dontsink', 3, 'gpws_sink_rate', "don't sink", 3);
+
+    /* ---- Mode 4 形态不当贴近地面 ---- */
+    if (!g.toPhase && agl > 50 && vs < -100) {
+      if (agl < 500 && st.gearPos < 0.99 && ias < 190) callout('toolowgear', 3, 'gpws_terrain', 'too low, gear', 3);
+      else if (agl < 245 && st.gearPos > 0.99 && st.flapPos < 0.45 && ias < 159) callout('toolowflaps', 3, 'gpws_terrain', 'too low, flaps', 3);
     }
 
-    /* ---- 下滑道偏离 ---- */
+    /* ---- Mode 5 低于下滑道 ---- */
     if (this.ap.gsCaptured && agl < 1000 && agl > 100) {
       var gsDev = this.ap.lastGsDev || 0;
-      if (gsDev < -0.6) {   // 低于下滑道 (按我的符号: gsDeviationFt 高于下滑道为正)
-        callout('glideslope', 3, 'gpws_glideslope');
-        g.glideslope = true;
-      } else g.glideslope = false;
+      if (gsDev < -0.6) { callout('glideslope', 3, 'gpws_glideslope', 'glide slope', 2); g.glideslope = true; } else g.glideslope = false;
     }
 
-    /* ---- 无线电高度喊话 ---- */
+    /* ---- Mode 6 坡度 ---- */
+    if (agl > 30 && Math.abs(st.rollDeg) > 35) callout('bank', 3, null, 'bank angle, bank angle', 3);
+
+    /* ---- 无线电高度报数 (空客 / 波音 不同的报数表) ---- */
     var lastAgl = g.lastAgl === undefined ? agl : g.lastAgl;
     var descending = agl < lastAgl - 0.05;
     if (descending && (this.ap.gsCaptured || st.gearPos > 0.99) && vs < -80) {
-      var marks = [
-        [2500, 'gpws_terrain', 2500],   // "TWO THOUSAND FIVE HUNDRED" 用 terrain 音代替
-        [1000, 'gpws_10', 1000],
-        [500, 'gpws_10', 500],
-        [400, 'gpws_40', 400],
-        [300, 'gpws_30', 300],
-        [200, 'gpws_20', 200],
-        [100, 'gpws_10', 100],
-        [50, 'gpws_50', 50],
-        [40, 'gpws_40', 40],
-        [30, 'gpws_30', 30],
-        [20, 'gpws_20', 20],
-        [10, 'gpws_10', 10]
-      ];
+      var marks = boeing
+        ? [[2500, 'twenty five hundred'], [1000, 'one thousand'], [500, 'five hundred'], [100, 'one hundred'], [50, 'fifty'], [40, 'forty'], [30, 'thirty'], [20, 'twenty'], [10, 'ten']]
+        : [[2500, 'two thousand five hundred'], [1000, 'one thousand'], [500, 'five hundred'], [400, 'four hundred'], [300, 'three hundred'], [200, 'two hundred'], [100, 'one hundred'], [50, 'fifty'], [40, 'forty'], [30, 'thirty'], [20, 'twenty'], [10, 'ten']];
+      var tone = { 50: 'gpws_50', 40: 'gpws_40', 30: 'gpws_30', 20: 'gpws_20' };
       for (var i = 0; i < marks.length; i++) {
         var m = marks[i];
-        if (lastAgl > m[0] && agl <= m[0]) {
-          if (m[0] >= 500) { callout('ra' + m[0], 999, m[1]); }
-          else callout('ra' + m[0], 999, m[1]);
-          break;
-        }
+        if (lastAgl > m[0] && agl <= m[0]) { callout('ra' + m[0], 999, tone[m[0]] || 'gpws_10', m[1], 1); break; }
       }
-      // 20 ft RETARD
-      if (lastAgl > 20 && agl <= 20 && this.ap.landMode !== 'ROLLOUT') {
-        callout('retard', 999, 'gpws_retard');
-      }
+      // 空客 20 ft "RETARD" (A/THR 接通时 10 ft); 波音无此喊话
+      var rt = this.ap.ap && this.ap.ap.athr ? 10 : 20;
+      if (!boeing && lastAgl > rt && agl <= rt && this.ap.landMode !== 'ROLLOUT') callout('retard', 999, 'gpws_retard', 'retard, retard', 2);
     }
     g.lastAgl = agl;
   };
@@ -960,6 +951,7 @@
       if (this.frame % 30 === 0) this.checklistMgr.autoPhase(st);
       this._updateTraffic(dt, st);
       this._updateGPWS(dt, st);
+      if (FS.Alerts) FS.Alerts.update(dt, st);
     }
 
     /* ================= 世界 ================= */
@@ -1204,6 +1196,8 @@
       input.setMouseYoke(!input.mouseYoke);
       this.hud.notify(input.mouseYoke ? '鼠标驾驶杆: 开 (光标相对屏幕中心 = 杆量, 再按 M 关闭)' : '鼠标驾驶杆: 关', 'info', 3000);
     }
+    /* --- 0.6.1: 主警告 / 主警戒 确认 (按灯 / Shift+W / 摇杆按钮) --- */
+    if (input.consume('masterAck') && FS.Alerts) FS.Alerts.ack();
     /* --- 摇杆 AP 断开按钮 --- */
     if (input.consume('apDisconnect')) {
       // beta 0.4: 接通时断开; 已断开时再按 = 断开警告消音

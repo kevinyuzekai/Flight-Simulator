@@ -1,5 +1,5 @@
 /* =====================================================================
- * device-library.js — 图马斯特 (Thrustmaster) / 翼胜 (WINWING) 设备库 (beta 0.6.0)
+ * device-library.js — 图马斯特 (Thrustmaster) / 翼胜 (WINWING) 设备库 (beta 0.6.0, 0.6.1 补全)
  *
  * 按 USB VID/PID 识别设备, 给出设备类型与默认轴 / 按钮映射, 供 joystick.js 的 defaultProfile() 使用。
  * Chrome/Edge 的 Gamepad.id 形如 "T.A320 Pilot (Vendor: 044f Product: 0405)",
@@ -27,13 +27,13 @@
       buttons: { ptt: 0, apDisconnect: 1, brakes: 2, gearToggle: 3 } },
     { vid: TM, pid: '0407', vendor: 'Thrustmaster', name: 'TCA Quadrant Airbus Edition', kind: 'throttle', src: 'unconfirmed',
       axes: { throttle: [0, true], throttle2: [1, true] },
-      buttons: { throttleToggleRev: 4 } },
+      buttons: { apThrottle: 0, throttleToggleRev: 4, masterAck: 2 } },   // 0.6.1: 推力杆上的 A/THR 瞬时断开按钮
     { vid: TM, pid: '0409', vendor: 'Thrustmaster', name: 'TCA Yoke Boeing Edition', kind: 'stick', src: 'unconfirmed',
       axes: { roll: [0, false], pitch: [1, true] },
-      buttons: { apDisconnect: 0, ptt: 1 } },
+      buttons: { apDisconnect: 0, ptt: 1, flapsUp: 4, flapsDown: 5, masterAck: 2 } },
     { vid: TM, pid: '040a', vendor: 'Thrustmaster', name: 'TCA Quadrant Boeing Edition', kind: 'throttle', src: 'unconfirmed',
       axes: { throttle: [0, true], throttle2: [1, true] },
-      buttons: { throttleToggleRev: 2 } },
+      buttons: { apThrottle: 0, throttleTOGA: 1, throttleToggleRev: 2 } },
     { vid: TM, pid: 'b10a', vendor: 'Thrustmaster', name: 'T.16000M 摇杆', kind: 'stick', src: 'public',
       axes: { roll: [0, false], pitch: [1, true], yaw: [5, false], throttle: [6, true] },
       buttons: { ptt: 0, apDisconnect: 1, brakes: 2, gearToggle: 3 } },
@@ -58,6 +58,11 @@
       axes: { yaw: [5, false], brakeL: [0, false], brakeR: [1, false] }, buttons: {} },
     { vid: TM, pid: 'b370', vendor: 'Thrustmaster', name: 'T-LCM Pro Pedals', kind: 'pedals', src: 'public',
       axes: { yaw: [5, false], brakeL: [0, false], brakeR: [1, false] }, buttons: {} },
+    { vid: TM, pid: 'b106', vendor: 'Thrustmaster', name: 'T.Flight Stick X', kind: 'hotas', src: 'public',
+      axes: { roll: [0, false], pitch: [1, true], yaw: [5, false], throttle: [2, true] },
+      buttons: { apDisconnect: 1, ptt: 0, brakes: 2, gearToggle: 3 } },
+    { vid: TM, pid: '0400', vendor: 'Thrustmaster', name: 'HOTAS Cougar', kind: 'hotas', src: 'public',
+      axes: { roll: [0, false], pitch: [1, true], throttle: [2, true] }, buttons: { ptt: 0, apDisconnect: 4, brakes: 1 } },
     /* ---------- WINWING (翼胜) ---------- */
     { vid: WW, pid: 'bc27', vendor: 'WINWING', name: 'URSA MINOR Airline Joystick L', kind: 'stick', src: 'unconfirmed',
       axes: { roll: [0, false], pitch: [1, true], yaw: [5, false] }, buttons: { ptt: 0, apDisconnect: 1, brakes: 2 } },
@@ -78,6 +83,21 @@
     { vid: WW, pid: 'bef0', vendor: 'WINWING', name: 'Skywalker Metal Rudder Pedals', kind: 'pedals', src: 'unconfirmed',
       axes: { yaw: [5, false], brakeL: [0, false], brakeR: [1, false] }, buttons: {} }
   ];
+  // 0.6.1: PID 未收录时按设备名匹配 (翼胜新品 / 图马斯特变体常共用同一套轴序)
+  var NAMED = [
+    { re: /URSA MINOR.*(Airline|Throttle)|TOP ?ARC|AIRBUS THROTTLE/i, vendor: 'WINWING', name: 'WINWING 空客油门台 (按名称匹配)', kind: 'throttle', src: 'name',
+      axes: { throttle: [0, true], throttle2: [1, true] }, buttons: { apThrottle: 0, throttleToggleRev: 1 } },
+    { re: /ORION.*THROTTLE|F\/?A-?18.*THROTTLE|F-?16EX.*THROTTLE/i, vendor: 'WINWING', name: 'WINWING Orion 油门 (按名称匹配)', kind: 'throttle', src: 'name',
+      axes: { throttle: [0, true], throttle2: [1, true] }, buttons: {} },
+    { re: /URSA MINOR.*(Joystick|Stick)|SIDESTICK/i, vendor: 'WINWING', name: 'WINWING 侧杆 (按名称匹配)', kind: 'stick', src: 'name',
+      axes: { roll: [0, false], pitch: [1, true], yaw: [5, false] }, buttons: { ptt: 0, apDisconnect: 1 } },
+    { re: /SKYWALKER|WINWING.*RUDDER/i, vendor: 'WINWING', name: 'WINWING 脚舵 (按名称匹配)', kind: 'pedals', src: 'name',
+      axes: { yaw: [5, false], brakeL: [0, false], brakeR: [1, false] }, buttons: {} },
+    { re: /TCA Q|Quadrant/i, vendor: 'Thrustmaster', name: 'TCA 油门台 (按名称匹配)', kind: 'throttle', src: 'name',
+      axes: { throttle: [0, true], throttle2: [1, true] }, buttons: { apThrottle: 0, throttleToggleRev: 4 } },
+    { re: /TCA Yoke|Boeing.*Yoke/i, vendor: 'Thrustmaster', name: 'TCA Yoke (按名称匹配)', kind: 'stick', src: 'name',
+      axes: { roll: [0, false], pitch: [1, true] }, buttons: { apDisconnect: 0, ptt: 1 } }
+  ];
   var VENDORS = { '044f': 'Thrustmaster', '4098': 'WINWING' };
 
   function parseId(id) {
@@ -88,6 +108,8 @@
   function lookup(id) {
     var v = parseId(id); if (!v) return null;
     for (var i = 0; i < DEVICES.length; i++) if (DEVICES[i].vid === v.vid && DEVICES[i].pid === v.pid) return DEVICES[i];
+    if (!VENDORS[v.vid]) return null;
+    for (i = 0; i < NAMED.length; i++) if (NAMED[i].re.test(String(id))) return NAMED[i];
     return null;
   }
   /** 把库里的默认映射写进 joystick.js 的 profile (只在轴号存在时) */
@@ -103,6 +125,6 @@
     p.device = { vendor: d.vendor, name: d.name, vid: d.vid, pid: d.pid, verified: false, src: d.src };
     return p;
   }
-  FS.DeviceLibrary = { DEVICES: DEVICES, VENDORS: VENDORS, parseId: parseId, lookup: lookup, apply: apply,
+  FS.DeviceLibrary = { DEVICES: DEVICES, NAMED: NAMED, VENDORS: VENDORS, parseId: parseId, lookup: lookup, apply: apply,
     vendorOf: function (id) { var v = parseId(id); return v ? (VENDORS[v.vid] || null) : null; } };
 })(typeof window !== 'undefined' ? window : globalThis);

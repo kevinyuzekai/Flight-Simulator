@@ -8,7 +8,7 @@
 包含 11 种民航机型、77 个真实机场、10 个飞行场景和完整的玻璃座舱航电。
 
 不需要安装任何东西，不需要构建，**离线即可完整游玩**；联网时可选加载全球真实卫星影像与地形（beta 0.3）。
-**最新版本：beta 0.6.0**（[发布页](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.6.0)）——网页版 [`SkyRoute-beta_v0.6.0.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.6.0/SkyRoute-beta_v0.6.0.zip)；Windows **便携版 zip** [`SkyRoute-Windows-portable-beta_v0.6.0-x64.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.6.0/SkyRoute-Windows-portable-beta_v0.6.0-x64.zip)（约 8 MB，基于系统 WebView2）；[Microsoft Store](https://apps.microsoft.com/detail/9P25XZZM8JXT)（Windows 上可直接打开 `ms-windows-store://pdp/?productid=9P25XZZM8JXT`） 当前上架版本为 beta 0.5.5（免费）。本版 **无 NSIS Setup.exe，Windows 仅提供便携版 zip**（旧版「如有 Setup」可安装）。旧版本（beta 0.5.5 / 0.5.2 / 0.5.1 / 0.5.0 / 0.4.2 / 0.4.1 / 0.4 / 0.3.x）仍保留在 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)。
+**最新版本：beta 0.5.5**（[发布页](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.5.5)）——网页版 [`SkyRoute-beta_v0.5.5.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.5.5/SkyRoute-beta_v0.5.5.zip)；Windows **便携版 zip** [`SkyRoute-Windows-portable-beta_v0.5.5-x64.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.5.5/SkyRoute-Windows-portable-beta_v0.5.5-x64.zip)（约 8 MB，基于系统 WebView2）；[Microsoft Store](https://apps.microsoft.com/detail/9P25XZZM8JXT)（Windows 上可直接打开 `ms-windows-store://pdp/?productid=9P25XZZM8JXT`） 当前上架版本为 beta 0.5.5（免费）。本版 **无 NSIS Setup.exe，Windows 仅提供便携版 zip**（旧版「如有 Setup」可安装）。旧版本（beta 0.5.2 / 0.5.1 / 0.5.0 / 0.4.2 / 0.4.1 / 0.4 / 0.3.x）仍保留在 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)。
 
 ![主菜单](screenshots/01-主菜单.png)
 

@@ -1,6 +1,6 @@
 [package]
 name = "skyroute"
-version = "0.6.0"
+version = "0.6.1"
 description = "天际航线 SkyRoute (WebView2 shell)"
 authors = ["kevinyuzekai"]
 edition = "2021"

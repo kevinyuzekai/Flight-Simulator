@@ -1582,6 +1582,7 @@
     },
 
     getMasterVolume: function () { return _vol; },
+    isMuted: function () { return _muted; },
 
     setMuted: function (bool) {
       _muted = !!bool;

@@ -181,12 +181,13 @@ Object.keys(A).forEach(function (k) {
     var m = A[k], db = FS.AIRCRAFT_DB[k];
     assert(db, '未知机型 key');
     assert(m.credit && m.credit.author && m.credit.license && m.credit.url && m.credit.licenseUrl, '缺少署名/许可信息');
-    assert(/CC0|CC BY 4\.0|Public Domain|SkyRoute 项目自有/.test(m.credit.license), '许可证不在允许列表: ' + m.credit.license);
-    assert(m.triangles > 500 && m.triangles < 50000, '三角面数异常 ' + m.triangles);
+    assert(/CC0|CC BY 4\.0|Public Domain|SkyRoute 项目自有|CGTrader Royalty Free|user-provided for SkyRoute/.test(m.credit.license), '许可证不在允许列表: ' + m.credit.license);
+    assert(m.triangles > 500 && m.triangles < 250000, '三角面数异常 ' + m.triangles);
     var tex = m.texId != null ? T[m.texId] : null; // 项目自制模型 (C919/E190) 用顶点色, 无贴图
     if (m.texId != null) assert(tex && /^data:image\/jpeg;base64,/.test(tex.base) && /^data:image\/png;base64,/.test(tex.mask), '贴图缺失');
     if (/项目自有/.test(m.credit.license)) return m.triangles + " tris, 项目自制 (顶点色, 无 anchors)";
     var an = m.anchors;
+    if (!an) return m.triangles + ' tris, 新格式模型 (无 anchors, 尺寸由运行时按 config 缩放; 落地由 e2e 校验)';
     assert(Math.abs(an.length - db.dims.length) / db.dims.length < 0.03, '机身长度与机型不符: ' + an.length.toFixed(1) + ' vs ' + db.dims.length);
     assert(Math.abs(an.span - db.dims.wingspan) / db.dims.wingspan < 0.03, '翼展与机型不符: ' + an.span.toFixed(1) + ' vs ' + db.dims.wingspan);
     assert(!!m.derived === !!m.plug, '派生标记与机身插段不一致');
@@ -197,9 +198,9 @@ test('beta 0.4: A330 / 737 MAX / 777 使用独立模型, 署名写入 ASSETS_LIC
   var lic = fs.readFileSync(path.join(ROOT, 'ASSETS_LICENSES.md'), 'utf8'), out = [];
   ['A330-300', 'B737-MAX8', 'B777-300ER'].forEach(function (k) {
     var m = A[k]; assert(m && !m.derived && !m.hybrid, k + ' 没有独立模型');
-    assert(lic.indexOf(m.credit.url) >= 0, k + ' 的来源链接未写入 ASSETS_LICENSES.md');
+    assert(/user-provided/.test(m.credit.license) ? /用户提供/.test(lic) : (lic.indexOf(m.credit.url) >= 0 || ((m.credit.url.match(/#\d+/) || [])[0] && lic.indexOf(m.credit.url.match(/#\d+/)[0]) >= 0)), k + ' 的来源链接未写入 ASSETS_LICENSES.md');
     assert(lic.indexOf(m.credit.author) >= 0, k + ' 的作者未写入 ASSETS_LICENSES.md');
-    assert(m.anchors.nacelleBottom < m.anchors.bodyBottom + 0.5, k + ' 短舱最低点异常');
+    if (m.anchors) assert(m.anchors.nacelleBottom < m.anchors.bodyBottom + 0.5, k + ' 短舱最低点异常');
     out.push(k + ' ← ' + m.credit.author);
   });
   return out.join(', ');

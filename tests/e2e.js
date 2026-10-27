@@ -136,7 +136,9 @@ var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A320ceo', 'A321neo', 'A330-300
         if (m.asset) { var f = m.parts.fuselage; tex = f && f.material && f.material.map && f.material.map.userData.ready ? 'ready' : 'pending'; }
         if (m.asset && m.asset.texId && tex !== 'ready') throw new Error('贴图未就绪');   // 0.6.0: 无 texId 的机模 (A320neo/ceo, A330, C919, E190) 用模型自带材质, 不需要合成贴图
         if (dz < -0.5 || dz > 0.3) throw new Error('机轮底部相对地面 ' + dz.toFixed(2) + ' m (悬空或下陷)');
-        if (bz < 0.08) throw new Error('机身/发动机最低点距地面仅 ' + bz.toFixed(2) + ' m');   // 0.6.0: E190 机模 assetPart0 最低点 0.09–0.10 m (0.5.5 起即如此, 随支柱压缩在 0.1 上下抖动), 阈值由 0.1 放宽到 0.08
+        var isE = sim.aircraftKey === 'E190' || /E190/.test(m.source || '');
+        if (bz < (isE ? 0.30 : 0.1)) throw new Error('机身/发动机最低点距地面仅 ' + bz.toFixed(2) + ' m');   // 0.6.1: E190 支柱加长后短舱离地 ≈0.38 m (APM 0.38 m), 阈值 0.30; 其他机型恢复 0.1
+        if (isE && Math.abs(dz) > 0.05) throw new Error('E190 机轮未压在跑道上 dz=' + dz.toFixed(3));
         if (sim.fm.getState().onGround && Math.abs(sim.fm.getState().pitchDeg) < 3 && up.y < 0.99) throw new Error('模型姿态与机体轴不一致 up=' + up.y.toFixed(3));
         if (!sim.cockpit3d || !sim.cockpit3d.clickables.length) throw new Error('三维驾驶舱未构建');
         return m.source + ' / 驾驶舱 ' + sim.cockpit3d.L.maker + ', 机轮 ' + dz.toFixed(2) + ' m, 机身/发动机离地 ' + bz.toFixed(2) + ' m, 贴图 ' + tex + ', ' + sim.renderer.info.render.calls + ' draw calls';
