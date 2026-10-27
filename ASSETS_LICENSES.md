@@ -66,7 +66,8 @@
 | A320ceo | 与 A320neo 共用 ["Airnz A320neo"](https://sketchfab.com/3d-models/airnz-a320neo-93ab115c239e4e9faaf24f598452e436)（beta 0.5.3 起） | Airnz86 | CC BY 4.0 | 同 A320neo |
 | A320neo | ["Airnz A320neo"](https://sketchfab.com/3d-models/airnz-a320neo-93ab115c239e4e9faaf24f598452e436)（Sketchfab，按 A320neo 尺寸缩放） | Airnz86 | CC BY 4.0 | 程序化（源模型起落架/内饰已丢弃） |
 | A321neo | ["airbus a321"](https://sketchfab.com/3d-models/542713418c7f47ce9c71d3d0b23921e3)（原韩亚涂装已去除） | 1883 | CC BY 4.0 | 模型自带 |
-| B737-800 / B737-MAX8 | ["737 Max-8 (Free)"](https://sketchfab.com/3d-models/197ae72ceb5441efa91b8bdc2ee37050)（737-800 为同一模型按尺寸缩放） | AMGP3D | CC BY 4.0 | 模型自带 |
+| B737-800 | ["737 Max-8 (Free)"](https://sketchfab.com/3d-models/197ae72ceb5441efa91b8bdc2ee37050)（737-800 为同一模型按尺寸缩放） | AMGP3D | CC BY 4.0 | 模型自带 |
+| B737-MAX8 | "Free Boeing 737 Max-8 3D Model"（CGTrader #3010493；0.6.0 起，替换上一行的旧 MAX 8 外形）。原 GOL 涂装的文字、标志与橙色均已去除，重绘为波音原厂涂装（白色机身 + 蓝色垂尾 / 小翼，未使用波音商标）；源模型缺失的前机身左半由右半镜像补齐；未减面；贴图无损 WebP 内嵌，不单独附带原始文件 | AMPG | CGTrader Royalty Free | 模型自带（可收放，带减震） |
 | B777-300ER | ["Boeing 777- 300ER"](https://sketchfab.com/3d-models/cfe500ad3fb14b9ba950dd5403f57ec1) | Adam.White | CC BY 4.0 | 模型自带 |
 | A330-300 | 用户提供 OBJ（去涂装中性白；驾驶舱风挡为程序化 3D 玻璃贴合机头） | user-provided | 用户提供用于 SkyRoute | 程序化 |
 | C919 / E190 | SkyRoute 项目自制（blender_bot 在 Blender 中程序化建模，源文件 `assets_src/blender/`） | blender_bot | 项目自有 | 模型自带 |

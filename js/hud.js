@@ -116,7 +116,13 @@
           // 该机型若指定了默认 (中性) 涂装, 选机时同步切换涂装
           if (ac.defaultLivery) {
             self.selected.livery = ac.defaultLivery;
-            var lsel = $('livery-select'); if (lsel) lsel.value = ac.defaultLivery;
+            var lsel = $('livery-select');
+            if (lsel) {   // 0.6.0: 重新生成涂装列表 (原厂涂装随机型变化)
+              lsel.innerHTML = '';
+              var bk2 = FS.ModelAssets && FS.ModelAssets[ac.key] && FS.ModelAssets[ac.key].bakedLivery;
+              FS.LIVERIES.forEach(function (l) { if (l.types && l.types.indexOf(ac.key) < 0) return; if (bk2 && l.id !== bk2) return; var op = el('option'); op.value = l.id; op.textContent = l.name; lsel.appendChild(op); });
+              lsel.value = ac.defaultLivery;
+            }
           }
           $qa('.ac-card').forEach(function (c) { c.classList.remove('active'); });
           card.classList.add('active');
@@ -207,6 +213,9 @@
     if (lSel) {
       lSel.innerHTML = '';
       FS.LIVERIES.forEach(function (l) {
+        if (l.types && l.types.indexOf(self.selected.aircraft) < 0) return;   // 0.6.0: 原厂涂装只列在对应机型下
+        var bk = FS.ModelAssets && FS.ModelAssets[self.selected.aircraft] && FS.ModelAssets[self.selected.aircraft].bakedLivery;
+        if (bk && l.id !== bk) return;                                        // 贴图内已烘焙原厂涂装的机模只列该涂装
         var o = el('option');
         o.value = l.id;
         o.textContent = l.name;

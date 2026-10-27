@@ -312,6 +312,7 @@
     var w = FS.Geo.toWorld(dep.lat, dep.lon);
     this.env.addFlattenZone(w.x, w.z, 4200, dep.elevFt * C.FT, 2200);
     // 目的地也压平 (如果在本图范围内)
+    this.flightInfo = { dep: dep.icao, rwy: runwayIdent, arr: opts.arrIcao || null, type: typeKey };   // 0.6.0: 供 MCDU 显示
     if (opts.arrIcao) {
       var arr = FS.Airports.byIcao(opts.arrIcao);
       if (arr) {

@@ -52,7 +52,7 @@
   var FAMILY = { 'A320neo': 'a320', 'A320ceo': 'a320', 'A321neo': 'a320', 'A330-300': 'a330', 'A350-900': 'a350', 'A350-1000': 'a350',
     'C919': 'c919', 'B737-800': 'b737', 'B737-MAX8': 'b737max', 'B777-300ER': 'b777', 'B787-9': 'b787', 'E190': 'e190' };
   var FAM_STYLE = {
-    a320: { aspect: 1.0, hud: false, lowerCenter: true, pal: {} },
+    a320: { aspect: 1.0, hud: false, lowerCenter: true, pal: { panel: 0x50606f, console: 0x4b5a69, glare: 0x25282c, lining: 0xb7bbbe, frame: 0x3a424b } },   // 0.6.0: 空客蓝灰面板 / 黑色旋钮
     a330: { aspect: 1.0, hud: false, lowerCenter: true, pal: { panel: 0x56677a, console: 0x526172 } },
     a350: { aspect: 1.32, hud: false, lowerCenter: true, pal: { panel: 0x3d444d, glare: 0x1d2024, console: 0x3a4148, lining: 0x9aa1a8, seat: 0x23272d } },
     c919: { aspect: 1.25, hud: false, lowerCenter: true, pal: { panel: 0x4a5560, console: 0x46515c, seat: 0x2c333b } },
@@ -124,8 +124,60 @@
     if (!o.emissive && m.userData.base.convertSRGBToLinear) m.userData.base.convertSRGBToLinear();
     m.color.copy(m.userData.base);
     m.userData.emissive = !!o.emissive;
+    m.userData.integ = o.integ !== undefined ? !!o.integ : !!(o.map && !o.emissive);   // 0.6.0: 带字符贴图的面板 = 背光照明
+    if (!o.emissive && !o.noLit && !o.transparent) this._litify(m, o.rough === undefined ? 0.78 : o.rough, o.bump === undefined ? (o.flat && o.map ? 0 : 1) : o.bump);
     this._mats.push(m);
     return m;
+  };
+  /* 0.6.0: 舱内 "类 PBR" 着色 (所有机型共用一个着色器程序, 不增加资源体积)
+     - 主光 (经风挡射入, 随昼夜) 的漫反射 + Blinn-Phong 高光, 粗糙度按材质 (旋钮/手柄更光滑) 并由细节贴图亮度微调
+     - 细节贴图亮度作凹凸 (屏幕空间导数求法线扰动) → 哑光面板的颗粒/划痕在掠射光下可见
+     - 夜间: 遮光板下的面板泛光灯 + 中央操纵台泛光灯 (FLOOD 旋钮) 与顶灯 (DOME) 为真实的点光源, 有照度衰减与朝向
+     顶点色里另有烘焙的环境光遮蔽 (见 _bake)。 */
+  P._litify = function (m, rough, bump) {
+    var THREE = this.THREE, U = this._lu;
+    if (!U) {
+      U = this._lu = {
+        uKeyV: { value: new THREE.Vector3(0, 0.6, 0.8) }, uKeyI: { value: 0.35 }, uAmb: { value: 0.8 },
+        uFl1P: { value: new THREE.Vector3() }, uFl2P: { value: new THREE.Vector3() }, uDomeP: { value: new THREE.Vector3() },
+        uFlI: { value: 0 }, uDomeI: { value: 0 }, uInvB: { value: 1 }, uLR: { value: 0.5 }
+      };
+    }
+    m.userData.rough = rough;
+    var R = { value: rough }, BU = { value: bump };
+    m.onBeforeCompile = function (sh) {
+      Object.keys(U).forEach(function (k) { sh.uniforms[k] = U[k]; });
+      sh.uniforms.uRough = R; sh.uniforms.uBump = BU;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vNV;\nvarying vec3 vPV;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\n\tvNV = normalize(normalMatrix * normal);\n\tvPV = mvPosition.xyz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', ['#include <common>',
+        'varying vec3 vNV; varying vec3 vPV;',
+        'uniform vec3 uKeyV, uFl1P, uFl2P, uDomeP; uniform float uKeyI, uAmb, uFlI, uDomeI, uInvB, uLR, uRough, uBump;',
+        'float ckPt(vec3 P, vec3 N, vec3 lp, float r) { vec3 d = lp - P; float l2 = dot(d, d); return max(dot(N, d * inversesqrt(l2)), 0.0) / (1.0 + l2 / (r * r)); }'].join('\n'))
+        .replace('#include <output_fragment>', [
+        '{',
+        '  vec3 N = normalize(vNV) * (gl_FrontFacing ? 1.0 : -1.0);',
+        '  float h = 1.0, rough = uRough;',
+        '#ifdef USE_MAP',
+        '  h = dot(texture2D(map, vUv).rgb, vec3(0.3333));',
+        '  vec2 dH = vec2(dFdx(h), dFdy(h)) * 0.004 * uBump;',
+        '  vec3 sx = dFdx(vPV), sy = dFdy(vPV), r1 = cross(sy, N), r2 = cross(N, sx); float det = dot(sx, r1);',
+        '  N = normalize(abs(det) * N - sign(det) * (dH.x * r1 + dH.y * r2));',
+        '  rough = clamp(uRough - (h - 0.93) * 1.5, 0.08, 1.0);',
+        '#endif',
+        '  vec3 V = normalize(-vPV), Lk = normalize(uKeyV), H = normalize(Lk + V);',
+        '  float ndl = max(dot(N, Lk), 0.0);',
+        '  float sp = pow(max(dot(N, H), 0.0), mix(90.0, 6.0, rough)) * (1.0 - rough) * (1.0 - rough) * 0.5;',
+        '  float fr = pow(1.0 - max(dot(N, V), 0.0), 5.0) * (1.0 - rough) * 0.25;',
+        '  outgoingLight = outgoingLight * (uAmb + uKeyI * ndl) + vec3(1.0, 0.98, 0.94) * (sp * ndl + fr) * uKeyI;',
+        '  vec3 alb = diffuseColor.rgb * uInvB;',
+        '  float fl = uFlI * (ckPt(vPV, N, uFl1P, uLR) + 0.8 * ckPt(vPV, N, uFl2P, uLR));',
+        '  float dm = uDomeI * ckPt(vPV, N, uDomeP, uLR * 2.2);',
+        '  outgoingLight += alb * (vec3(1.0, 0.86, 0.66) * fl + vec3(1.0, 0.95, 0.86) * dm);',
+        '}',
+        '#include <output_fragment>'].join('\n'));
+    };
+    m.customProgramCacheKey = function () { return 'ckLit'; };
   };
   P._tex = function (canvas) {
     var THREE = this.THREE;
@@ -199,16 +251,16 @@
     var boeing = L.maker === 'boeing';
     var M = this.M = {
       lining: this._mat(C.lining), glare: this._mat(C.glare), frame: this._mat(C.frame), floor: this._mat(C.floor),
-      console: this._mat(C.console), seat: this._mat(C.seat), door: this._mat(C.door), stick: this._mat(C.stick),
-      lever: this._mat(C.lever), knob: this._mat(C.knob), panel: this._mat(C.panel),
-      bezel: this._mat(0x101215), black: this._mat(0x050607, { flat: true }),
+      console: this._mat(C.console), seat: this._mat(C.seat), door: this._mat(C.door), stick: this._mat(C.stick, { rough: 0.5 }),
+      lever: this._mat(C.lever, { rough: 0.42 }), knob: this._mat(C.knob, { rough: 0.38 }), panel: this._mat(C.panel),
+      bezel: this._mat(0x101215, { rough: 0.32 }), black: this._mat(0x050607, { flat: true, rough: 0.4 }),
       red: this._mat(0xb01818), green: this._mat(0x23c447, { flat: true, emissive: true, toneMapped: false })
     };
     this.eyeX = -0.53 * k;
     // 哑光面板材质: 程序生成的细颗粒 + 轻微磨损/划痕 (乘在底色上)
     var nc = mkCanvas(256, 256), ng = nc.getContext('2d'), rs = 11;
     ng.fillStyle = '#f4f4f4'; ng.fillRect(0, 0, 256, 256);
-    for (var ni = 0; ni < 9000; ni++) { rs = (rs * 16807) % 2147483647; var nv = 222 + (rs % 34); ng.fillStyle = 'rgb(' + nv + ',' + nv + ',' + nv + ')'; ng.fillRect(rs % 256, (rs >> 8) % 256, 1 + (rs % 2), 1); }
+    for (var ni = 0; ni < 9000; ni++) { rs = (rs * 16807) % 2147483647; var nv = 232 + (rs % 24); ng.fillStyle = 'rgb(' + nv + ',' + nv + ',' + nv + ')'; ng.fillRect(rs % 256, (rs >> 8) % 256, 1 + (rs % 2), 1); }
     ng.strokeStyle = 'rgba(255,255,255,0.35)'; ng.lineWidth = 1;
     for (ni = 0; ni < 26; ni++) { rs = (rs * 16807) % 2147483647; var sx0 = rs % 256, sy0 = (rs >> 9) % 256; ng.beginPath(); ng.moveTo(sx0, sy0); ng.lineTo(sx0 + (rs % 40) - 20, sy0 + ((rs >> 4) % 12) - 6); ng.stroke(); }
     var edge = ng.createLinearGradient(0, 0, 0, 256); edge.addColorStop(0, 'rgba(0,0,0,0.10)'); edge.addColorStop(0.06, 'rgba(0,0,0,0)'); edge.addColorStop(0.94, 'rgba(0,0,0,0)'); edge.addColorStop(1, 'rgba(0,0,0,0.12)');
@@ -295,17 +347,25 @@
     var THREE = this.THREE;
     this.group.updateMatrixWorld(true);
     var inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
-    var nm = new THREE.Matrix3(), rel = new THREE.Matrix4(), n = new THREE.Vector3();
+    var nm = new THREE.Matrix3(), rel = new THREE.Matrix4(), n = new THREE.Vector3(), pp = new THREE.Vector3(), k = this.L.k;
     this.group.traverse(function (o) {
       if (!o.isMesh || !o.material || !o.material.vertexColors) return;
       var g = o.geometry;
       if (!g.attributes.normal) g.computeVertexNormals();
       rel.multiplyMatrices(inv, o.matrixWorld);
       nm.getNormalMatrix(rel);
-      var N = g.attributes.normal, cnt = N.count, col = new Float32Array(cnt * 3);
+      var N = g.attributes.normal, Pa = g.attributes.position, cnt = N.count, col = new Float32Array(cnt * 3);
       for (var i = 0; i < cnt; i++) {
         n.set(N.getX(i), N.getY(i), N.getZ(i)).applyMatrix3(nm).normalize();
         var s = 0.52 + 0.30 * Math.abs(n.y) + 0.18 * Math.abs(n.z) + (n.y > 0.3 ? 0.06 : 0);
+        // 0.6.0: 近似环境光遮蔽 / 软阴影 (驾驶舱局部坐标): 遮光板下沿的阴影带、脚部区域、侧壁角落
+        pp.set(Pa.getX(i), Pa.getY(i), Pa.getZ(i)).applyMatrix4(rel);
+        var ao = 1;
+        if (pp.z < -0.46 * k && pp.y < -0.29 * k && pp.y > -0.80 * k) ao *= 0.74 + 0.26 * Math.min(1, (-0.29 * k - pp.y) / (0.16 * k));
+        if (pp.y < -0.72 * k) ao *= 0.70 + 0.30 * Math.max(0, Math.min(1, (pp.y + 1.15 * k) / (0.43 * k)));
+        if (Math.abs(pp.x) > 0.80 * k) ao *= 0.86 + 0.14 * Math.max(0, Math.min(1, (1.0 * k - Math.abs(pp.x)) / (0.2 * k)));
+        if (pp.y > 0.22 * k && pp.z > 0.05 * k) ao *= 0.9;
+        s *= ao;
         col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = Math.min(1, s);
       }
       g.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -499,14 +559,24 @@
       for (s = -1; s <= 1; s += 2) plate(pw * 0.86, 0.13, s * pw * 0.5, fz, [['MFK', 0, 0.05, 0.010]], { bg: '#26292d', draw: function (g, W, H) {
         g.fillStyle = '#545a60'; for (var r = 0; r < 4; r++) for (var q = 0; q < 9; q++) g.fillRect(W * (0.07 + q * 0.095), H * (0.25 + r * 0.17), W * 0.075, H * 0.12); } });
     } else {
-      var mc = mkCanvas(256, 320); this._drawMCDU(mc);
-      var mm = this._mat(0xffffff, { flat: true, map: this._tex(mc), toneMapped: false, emissive: true });
+      // 0.6.0: 交互式 MCDU (FS.MCDU); 左右两台各自独立
+      this.mcdus = [];
       for (s = -1; s <= 1; s += 2) {
+        var mcd = FS.MCDU ? new FS.MCDU(this.sim, boeing) : null;
+        var mc = mkCanvas(mcd ? FS.MCDU.W : 256, mcd ? FS.MCDU.H : 320);
+        if (mcd) mcd.draw(mc); else this._drawMCDU(mc);
+        var mtex = this._tex(mc);
+        var mm = this._mat(0xffffff, { flat: true, map: mtex, toneMapped: false, emissive: true });
         var g = new THREE.Group(); g.position.set(s * pw * 0.5, top + 0.035, fz); g.rotation.x = -1.05; this.group.add(g);
         if (PL && PL.mcdu) g.position.x = s * PL.mcdu.x * k;
         var mw = PL && PL.mcdu ? PL.mcdu.w * k : pw * 0.9;
         this._box(mw, 0.17, 0.05, M.frame, 0, 0, -0.026, 0, 0, 0, g);
-        this._plane(mw * 0.955, 0.16, mm, 0, 0, 0.001, 0, 0, 0, g);
+        var mp = this._plane(mw * 0.955, 0.16, mm, 0, 0, 0.001, 0, 0, 0, g);
+        if (mcd) {
+          var rr = mcd.keys.map(function (kk) { return { x: kk.x, y: kk.y, w: kk.w, h: kk.h, act: { mcdu: kk.id, side: s } }; });
+          mp.userData.canvas = mc; mp.userData.rects = rr; mp.userData.noBake = true; this.clickables.push(mp);
+          this.mcdus.push({ m: mcd, c: mc, tex: mtex, sig: mcd.sig() });
+        }
       }
     }
     // ---- 推力手柄座 ----
@@ -898,6 +968,21 @@
     var c = mkCanvas(cw, ch), ctx = c.getContext('2d');
     ctx.fillStyle = hex(o.color || this.pal.panel); ctx.fillRect(0, 0, cw, ch);
     ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 3; ctx.strokeRect(2, 2, cw - 4, ch - 4);
+    // 0.6.0 真实感: 细微磨损 (手指常碰处偏亮 / 边缘发暗)、四角 Dzus 快卸螺钉; 空客面板加白色细框 (与真机面板分区白线一致)
+    var rs = (cw * 131 + ch * 17) % 2147483647 || 7, ni;
+    for (ni = 0; ni < cw * ch / 900; ni++) { rs = (rs * 16807) % 2147483647; ctx.fillStyle = (rs & 1) ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.05)'; ctx.fillRect(rs % cw, (rs >> 7) % ch, 1 + (rs % 3), 1); }
+    var wg = ctx.createRadialGradient(cw * 0.5, ch * 0.55, 0, cw * 0.5, ch * 0.55, Math.max(cw, ch) * 0.7);
+    wg.addColorStop(0, 'rgba(255,255,255,0.025)'); wg.addColorStop(1, 'rgba(0,0,0,0.07)'); ctx.fillStyle = wg; ctx.fillRect(0, 0, cw, ch);
+    var fr = Math.max(3, Math.round(0.0028 * s)), fi = Math.round(0.006 * s);
+    if (cw > 4 * fi && ch > 4 * fi) [[fi, fi], [cw - fi, fi], [fi, ch - fi], [cw - fi, ch - fi]].forEach(function (q) {
+      ctx.fillStyle = '#2a2f35'; ctx.beginPath(); ctx.arc(q[0], q[1], fr, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = '#111417'; ctx.lineWidth = Math.max(1, fr * 0.35); ctx.beginPath(); ctx.moveTo(q[0] - fr * 0.7, q[1] - fr * 0.3); ctx.lineTo(q[0] + fr * 0.7, q[1] + fr * 0.3); ctx.stroke();
+    });
+    if (this.L && this.L.maker !== 'boeing' && cw > 60 && ch > 40) {
+      var bi = Math.round(0.0035 * s); ctx.strokeStyle = 'rgba(236,240,242,0.55)'; ctx.lineWidth = Math.max(1.5, 0.0008 * s);
+      ctx.strokeRect(bi + fr * 2.2, bi, cw - 2 * (bi + fr * 2.2), ch - 2 * bi);
+    }
     var P0 = { g: g, w: o.w, h: o.h, c: c, ctx: ctx, sx: cw / o.w, sy: ch / o.h };
     P0.label = function (t, x, y, size, color) {
       ctx.fillStyle = color || '#eef1f3'; ctx.font = 'bold ' + Math.round((size || 0.011) * P0.sy) + 'px sans-serif';
@@ -1001,8 +1086,36 @@
     this._drawAnn(a);
     return a;
   };
+  /** 0.6.0: 通用控件变化回调 — ANN LT / LIGHT TEST 拨到 TEST 时所有告示灯点亮 */
+  /** 0.6.0: 读取灯光旋钮 (通用控件状态) → { integ, flood, dome } (0..1) */
+  P._lightLevels = function () {
+    var gen = this.gen || {}, integ = [], flood = [];
+    if (!this._ltKeys) {
+      var ks = this._ltKeys = { integ: [], flood: [] };
+      Object.keys(gen).forEach(function (k) {
+        var lab = k.split('/')[1] || '', pn = k.split('/')[0] || '';
+        if (/INTEG|^PANEL$|PNL LT|^PNL$/.test(lab)) ks.integ.push(k);
+        else if (/FLOOD|MAIN PNL/.test(lab) || (/FLOOD/.test(pn) && /PED|PNL/.test(lab))) ks.flood.push(k);
+      });
+    }
+    this._ltKeys.integ.forEach(function (k) { if (typeof gen[k] === 'number') integ.push(gen[k]); });
+    this._ltKeys.flood.forEach(function (k) { if (typeof gen[k] === 'number') flood.push(gen[k]); });
+    function avg(a, d) { if (!a.length) return d; var t = 0; a.forEach(function (v) { t += v; }); return t / a.length; }
+    var sim = this.sim, dome = sim && sim.lights && sim.lights.cabin ? 1 : 0;
+    return { integ: avg(integ, 0.5), flood: avg(flood, 0.3), dome: dome };
+  };
+  P._genOnChange = function (panel, lab, v, ps) {
+    if (!ps || !/ANN|LIGHT TEST|LT TEST|IND LT/.test(lab || '')) return;
+    var on = ps[v] === 'TEST';
+    if (!!this.annTest === on) return;
+    this.annTest = on;
+    if (this._genRedraw) this._genRedraw();
+    this._annForce = true;
+  };
   P._drawAnn = function (a) {
-    var rows = safe(a.fn, []) || [], sig = JSON.stringify(rows);
+    var rows = safe(a.fn, []) || [];
+    if (this.annTest) rows = rows.map(function (r) { return r && r.t ? { t: r.t, col: r.col, on: true } : r; });
+    var sig = JSON.stringify(rows);
     if (sig === a.sig) return;
     a.sig = sig;
     var c = a.c, g = c.getContext('2d'), W = c.width, H = c.height, n = Math.max(1, rows.length);
@@ -1043,7 +1156,143 @@
     var inst = {};   // 名称 → { geo, mat, list: [Matrix4] }
     function addInst(key, geo, mat, pn, x, y, z, rz, sx, sy, sz) {
       var I = inst[key] || (inst[key] = { geo: geo, mat: mat, list: [] });
-      I.list.push({ g: pn.g, x: x, y: y, z: z, rz: rz || 0, s: [sx || 1, sy || 1, sz || 1] });
+      var rec = { g: pn.g, x: x, y: y, z: z, rz: rz || 0, s: [sx || 1, sy || 1, sz || 1] };
+      I.list.push(rec);
+      return rec;
+    }
+    /* 0.6.0: 外观控件也可操作 (通用状态 self.gen), 拨杆 / 旋钮指针通过更新实例矩阵移动, 按钮灯字画在面板贴图上 */
+    var gen = self.gen || (self.gen = {}), genCaps = self._genCaps || (self._genCaps = []);
+    var LIT = { ON: '#38b6ff', AUTO: '#38b6ff', ALIGN: '#f2f2f2', DISCH: '#ffb000', SQUIB: '#f2f2f2', CALL: '#f2f2f2', EVAC: '#ff3030', SMOKE: '#ffb000', FAULT: '#ffb000', AVAIL: '#3dff6a', OPEN: '#f2f2f2' };
+    function capFace(cp) {
+      var pn = cp.pn, c = pn.ctx, sx = pn.sx, sy = pn.sy, w = cp.w, h = cp.h, X = (cp.x - w / 2 + pn.w / 2) * sx, Y = (pn.h / 2 - cp.y - h / 2) * sy;
+      var parts = (cp.legend || '').split('/'), on = !!gen[cp.key], test = !!self.annTest;
+      c.fillStyle = '#0b0c0d'; c.fillRect(X, Y, w * sx, h * sy);
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = 'bold ' + Math.max(6, Math.round(h * sy * 0.30)) + 'px sans-serif';
+      var up = parts[0], lo = parts[1];
+      if (up) { var u1 = test || (on && !lo); c.fillStyle = u1 ? (LIT[up] || '#ffb000') : '#4a3a1c'; c.fillText(up, X + w * sx / 2, Y + h * sy * 0.3); }
+      if (lo) { var l1 = test || on; c.fillStyle = l1 ? (LIT[lo] || '#f2f2f2') : '#3a3e42'; c.fillText(lo, X + w * sx / 2, Y + h * sy * 0.72); }
+      if (!up && !lo && (on || test)) { c.fillStyle = 'rgba(242,242,242,0.35)'; c.fillRect(X + 2, Y + 2, w * sx - 4, h * sy - 4); }
+      if (pn.mat.map) pn.mat.map.needsUpdate = true;
+    }
+    self._genRedraw = function () { genCaps.forEach(capFace); };
+    function genKey(pnName, lab, ri, ci) { return 'g:' + pnName + '/' + (lab || '?') + '/' + ri + '.' + ci; }
+    var ECAM_PG = { ENG: 'ENG', BLEED: 'BLEED', PRESS: 'PRESS', ELEC: 'ELEC', HYD: 'HYD', FUEL: 'FUEL', APU: 'APU', COND: 'COND', DOOR: 'DOOR', WHEEL: 'WHEEL', 'F/CTL': 'F/CTL', STS: 'STS', ALL: 'ALL' };
+    function genPb(pn, x, y, w, h, legend, lab, key, momentary, panelName) {
+      var cp = { pn: pn, x: x, y: y, w: w, h: h, legend: legend, key: key };
+      genCaps.push(cp); if (gen[key] === undefined) gen[key] = false;
+      self._ctl(self._hitbox(w + 0.006, h + 0.006, 0.012, x, y, 0.006, pn.g), { id: key, generic: true, tip: (panelName ? panelName + ' ' : '') + lab + (momentary ? ' (按下)' : ' (点击 开 / 关)'),
+        click: function () {
+          self._sfx();
+          if (momentary) {
+            gen[key] = true; capFace(cp);
+            setTimeout(function () { gen[key] = false; capFace(cp); }, /TEST/.test(lab) ? 2000 : 350);
+            self._genMomentary(panelName, lab);
+          } else { gen[key] = !gen[key]; capFace(cp); }
+        } });
+    }
+    self._genMomentary = function (panelName, lab) {
+      var sim = self.sim || {};
+      if (panelName === 'ECAM' || /ECAM|EICAS|DSP/.test(panelName || '')) {
+        if (lab === 'ALL') { var ci0 = SD_ORDER.indexOf(self.sdPage); self.sdPage = SD_ORDER[(ci0 + 1) % SD_ORDER.length]; }
+        else if (ECAM_PG[lab]) { self.sdPage = ECAM_PG[lab]; if (sim.hud && sim.hud.notify) sim.hud.notify('ECAM ' + lab, 'info', 900); }
+        if (lab === 'CLR' || lab === 'RCL') self.sdPage = null;
+      }
+      if (panelName === 'FIRE' && /TEST/.test(lab)) { self.fireTest = 2.0; }
+    };
+    /* 0.6.0: 无线电管理面板 (空客 RMP / 波音 VHF COMM): 主用 / 备用频率窗, XFR/TFR 交换, 双层旋钮调备用频率, VHF1/2/3 选台 */
+    var R = self.radios || (self.radios = { VHF1: { act: 118.700, stby: 119.050 }, VHF2: { act: 121.500, stby: 127.800 }, VHF3: { act: 131.725, stby: 136.975 }, HF1: { act: 8.879, stby: 11.336 }, HF2: { act: 5.616, stby: 13.306 } });
+    var radioPanels = self._radioPanels || (self._radioPanels = {});
+    function radioOf(P) {
+      var m = /^(RMP|VHF COMM) ?(\d|L|R|C)?/.exec(P.n); if (!m) return null;
+      var rp = radioPanels[P.n + '@' + P.x];
+      if (!rp) { var nn = { 1: 1, L: 1, 2: 2, R: 2, 3: 3, C: 3 }[m[2] || '1'] || 1; rp = radioPanels[P.n + '@' + P.x] = { sel: 'VHF' + nn, wins: [], caps: [] }; }
+      return rp;
+    }
+    function fmtF(f, sel) { return /^HF/.test(sel) ? f.toFixed(3) : f.toFixed(3); }
+    function drawWin(w) {
+      var pn = w.pn, c = pn.ctx, X = (w.x - 0.018 + pn.w / 2) * pn.sx, Y = (pn.h / 2 - w.y - 0.007) * pn.sy, WW = 0.036 * pn.sx, HH = 0.014 * pn.sy;
+      c.fillStyle = '#050505'; c.fillRect(X, Y, WW, HH);
+      var r = R[w.rp.sel] || R.VHF1, v = w.which === 'act' ? r.act : r.stby;
+      c.fillStyle = '#ffb000'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = 'bold ' + Math.max(7, Math.round(HH * 0.78)) + 'px monospace';
+      c.fillText(fmtF(v, w.rp.sel), X + WW / 2, Y + HH / 2 + 1);
+      if (pn.mat.map) pn.mat.map.needsUpdate = true;
+    }
+    function radioRedraw(rp) { rp.wins.forEach(drawWin); rp.caps.forEach(function (cp) { gen[cp.key] = cp.sel === rp.sel; capFace(cp); }); }
+    self._radioRedrawAll = function () { Object.keys(radioPanels).forEach(function (k) { radioRedraw(radioPanels[k]); }); };
+    function tune(rp, d) {
+      var r = R[rp.sel]; if (!r) return;
+      var hf = /^HF/.test(rp.sel), lo = hf ? 2.0 : 118.0, hi = hf ? 29.999 : 136.990;
+      r.stby = Math.round(Math.max(lo, Math.min(hi, r.stby + d)) * 1000) / 1000;
+      self._radioRedrawAll();
+    }
+    function special(P, spec, ri, ci, pn, x, y, lsz) {
+      var rp = radioOf(P); if (!rp) return false;
+      var a = spec.split('|'), t = a[0], lab = a[1] || '';
+      if (t === 'disp' && /ACTIVE|STBY|STANDBY/.test(lab)) {
+        var w = { pn: pn, x: x, y: y, rp: rp, which: /ACTIVE/.test(lab) ? 'act' : 'stby' };
+        rp.wins.push(w); pn.label(lab, x, y + 0.013, lsz); drawWin(w);
+        return true;
+      }
+      if (t === 'pb' && /^(XFR|TFR)$/.test(lab)) {
+        var bw = Math.min(0.022, CELL.cw * 0.8), bh = Math.min(0.019, CELL.rh * 0.55);
+        capDraw(pn, x, y, bw, bh, '/', lab, lsz);
+        addInst('bzH', G.box, MAT.bezel, pn, x, y + bh / 2 + 0.0015, 0.003, 0, bw + 0.006, 0.003, 0.006);
+        addInst('bzH', G.box, MAT.bezel, pn, x, y - bh / 2 - 0.0015, 0.003, 0, bw + 0.006, 0.003, 0.006);
+        self._ctl(self._hitbox(bw + 0.006, bh + 0.006, 0.012, x, y, 0.006, pn.g), { id: 'radio:' + P.n + ':xfr', tip: P.n + ' ' + lab + ' (交换主用 / 备用频率)',
+          click: function () { self._sfx(); var r = R[rp.sel]; if (r) { var tmp = r.act; r.act = r.stby; r.stby = tmp; } self._radioRedrawAll(); } });
+        return true;
+      }
+      if (t === 'knob' && !lab) {
+        knobVis(pn, x, y - 0.003, 'FREQ', lsz, null, 0.009);
+        self._ctl(self._hitbox(0.026, 0.026, 0.014, x, y - 0.003, 0.008, pn.g), { id: 'radio:' + P.n + ':knob', tip: P.n + ' 频率旋钮 (左键 +1 MHz / 右键 −1 MHz, 滚轮 ±25 kHz)',
+          click: function (dir) { self._sfx(); tune(rp, dir < 0 ? -1 : 1); }, wheel: function (dir) { tune(rp, dir * 0.025); } });
+        return true;
+      }
+      if (t === 'pb' && /^(VHF\d|HF\d)$/.test(lab) && ri > 0) {
+        var cw2 = Math.min(0.022, CELL.cw * 0.8), ch2 = Math.min(0.019, CELL.rh * 0.55);
+        capDraw(pn, x, y, cw2, ch2, '', lab, lsz);
+        var cp = { pn: pn, x: x, y: y, w: cw2, h: ch2, legend: '', key: 'radio:' + P.n + ':' + lab, sel: lab };
+        rp.caps.push(cp); genCaps.push(cp);
+        self._ctl(self._hitbox(cw2 + 0.006, ch2 + 0.006, 0.012, x, y, 0.006, pn.g), { id: cp.key, tip: P.n + ' 选择 ' + lab + ' 调频',
+          click: function () { self._sfx(); rp.sel = lab; radioRedraw(rp); } });
+        return true;
+      }
+      return false;
+    }
+    var genMov = [];   // { rec, key, kind, x, y, r, n }
+    function genMove(m) {
+      var rec = m.rec, v = gen[m.key];
+      if (m.kind === 'tg') { rec.y = m.y + 0.003 - (m.n > 1 ? v / (m.n - 1) : 0) * 0.008; }
+      else if (m.kind === 'rot' || m.kind === 'knob') {
+        var a = m.kind === 'knob' ? (v - 0.5) * 4.8 : (v - (m.n - 1) / 2) * Math.min(0.6, 2.4 / Math.max(1, m.n - 1));
+        rec.x = m.x + Math.sin(a) * m.r * 0.35; rec.y = m.y + Math.cos(a) * m.r * 0.35; rec.rz = -a;
+      } else if (m.kind === 'fire') { rec.z = v ? 0.026 : 0.012; }
+      if (rec._im) self._instSet(rec);
+    }
+    function genMovCtl(pn, x, y, kind, rec, key, lab, ps, r, panelName) {
+      var n = ps ? ps.length : 0;
+      if (gen[key] === undefined) {
+        var d0 = 0;
+        if (kind === 'tg' && ps) { ['OFF', 'NORM', 'AUTO', 'BRT', 'ARM'].some(function (w) { var j = ps.indexOf(w); if (j >= 0) { d0 = j; return true; } return false; }); }
+        gen[key] = kind === 'knob' ? 0.5 : (kind === 'rot' ? Math.round((n - 1) / 2) : d0);
+      }
+      var m = { rec: rec, key: key, kind: kind, x: x, y: y, r: r || 0.008, n: n }; genMov.push(m);
+      var hw = kind === 'fire' ? 0.05 : (kind === 'tg' ? 0.016 : (m.r * 2.6)), hh = kind === 'fire' ? 0.026 : (kind === 'tg' ? 0.022 : m.r * 2.6);
+      var tipPos = ps ? ' (' + ps.join(' / ') + ')' : (kind === 'knob' ? ' (滚轮 / 左右键 调节)' : (kind === 'fire' ? ' (点击 拉出 / 推回)' : ''));
+      function set(v) { gen[key] = v; genMove(m); if (self._genOnChange) self._genOnChange(panelName, lab, v, ps); }
+      self._ctl(self._hitbox(hw, hh, 0.014, x, y, 0.008, pn.g), { id: key, generic: true, tip: (panelName ? panelName + ' ' : '') + (lab || '') + tipPos,
+        click: function (dir) {
+          self._sfx(); var v = gen[key];
+          if (kind === 'knob') set(Math.max(0, Math.min(1, v + (dir < 0 ? -0.1 : 0.1))));
+          else if (kind === 'fire') set(v ? 0 : 1);
+          else set((v + (dir < 0 ? -1 : 1) + n) % n);
+        },
+        wheel: function (dir) {
+          var v = gen[key];
+          if (kind === 'knob') set(Math.max(0, Math.min(1, v + dir * 0.05)));
+          else if (kind !== 'fire') set(Math.max(0, Math.min(n - 1, v + dir)));
+        } });
     }
     var G = {
       box: new THREE.BoxGeometry(1, 1, 1), cyl: new THREE.CylinderGeometry(1, 1, 1, 18), cyl8: new THREE.CylinderGeometry(1, 1, 1, 8)
@@ -1064,6 +1313,7 @@
     function pbVis(pn, x, y, legend, label, lsz, guard) {
       var w = Math.min(0.022, CELL.cw * 0.8), h = Math.min(0.019, CELL.rh * 0.55);
       capDraw(pn, x, y, w, h, legend, label, lsz);
+      if (CELL.key) genPb(pn, x, y, w, h, legend, label, CELL.key, !/[^\/]/.test(legend || '') || /TEST|RESET|CLR|RCL|ERASE|CANC|PUSH|^TFR$|^XFR$/.test(label), CELL.pn);
       // 斜边按钮框 (四边)
       addInst('bzH', G.box, MAT.bezel, pn, x, y + h / 2 + 0.0015, 0.003, 0, w + 0.006, 0.003, 0.006);
       addInst('bzH', G.box, MAT.bezel, pn, x, y - h / 2 - 0.0015, 0.003, 0, w + 0.006, 0.003, 0.006);
@@ -1080,13 +1330,15 @@
       r = Math.min(r || 0.009, CELL.cw * 0.3, CELL.rh * 0.22);
       addInst('kSk', G.cyl, MAT.frame, pn, x, y, 0.002, 0, r * 1.25, 0.004, r * 1.25);
       addInst('kBd', G.cyl, MAT.stick, pn, x, y, 0.008, 0, r, 0.012, r);
-      addInst('kPt', G.box, MAT.knob, pn, x, y + r * 0.35, 0.0145, 0, r * 0.4, r * 1.6, 0.002);
+      var pt = addInst('kPt', G.box, MAT.knob, pn, x, y + r * 0.35, 0.0145, 0, r * 0.4, r * 1.6, 0.002);
+      if (CELL.key) genMovCtl(pn, x, y, pos ? 'rot' : 'knob', pt, CELL.key, label, pos, r, CELL.pn);
       if (label) pn.label(label, x, y + r + 0.012, lsz);
       if (pos) { var n = pos.length, st = Math.min(0.6, 2.4 / Math.max(1, n - 1)); pos.forEach(function (t, i) { var a = (i - (n - 1) / 2) * st, rr = r + 0.007; pn.label(t, x + Math.sin(a) * rr, y + Math.cos(a) * rr, 0.0052, '#d8dcdf'); }); }
     }
     function tgVis(pn, x, y, label, lsz, pos, guard) {
       addInst('tBs', G.box, MAT.black, pn, x, y, 0.002, 0, 0.012, 0.016, 0.004);
-      addInst('tLv', G.cyl8, MAT.knob, pn, x, y + 0.003, 0.011, 0, 0.0024, 0.02, 0.0024);
+      var lv = addInst('tLv', G.cyl8, MAT.knob, pn, x, y + 0.003, 0.011, 0, 0.0024, 0.02, 0.0024);
+      if (CELL.key) genMovCtl(pn, x, y, 'tg', lv, CELL.key, label, pos, 0, CELL.pn);
       if (label) pn.label(label, x, y + 0.017, lsz);
       if (pos) { pn.label(pos[0], x, y + 0.0095, 0.0048, '#cfd3d6'); pn.label(pos[pos.length - 1], x, y - 0.0115, 0.0048, '#cfd3d6'); }
       if (guard) { addInst('gRed', G.box, MAT.red, pn, x, y, 0.012, 0, 0.016, 0.02, 0.003); }
@@ -1098,7 +1350,10 @@
         var y = top - (ri + 0.5) * rowH + 0.002, m = row.length, cw = P.w / m;
         var lsz = Math.min(0.0068, cw * 0.13);
         row.forEach(function (spec, ci) {
-          var n0 = self.clickables.length; CELL.cw = cw; CELL.rh = rowH; cell(spec, ci);
+          var n0 = self.clickables.length; CELL.cw = cw; CELL.rh = rowH;
+          CELL.key = /(?:^|\|)f=/.test(spec) ? null : genKey(P.n, spec.split('|')[1], ri, ci); CELL.pn = P.n;
+          if (special(P, spec, ri, ci, pn, -P.w / 2 + (ci + 0.5) * cw, top - (ri + 0.5) * rowH + 0.002, lsz)) { CELL.key = null; return; }
+          cell(spec, ci); CELL.key = null;
           for (var hi = n0; hi < self.clickables.length; hi++) {   // 点击盒收进本格, 避免斜视时与相邻控件重叠
             var hb = self.clickables[hi], gp = hb.geometry && hb.geometry.parameters; if (!gp || !gp.width) continue;
             hb.scale.set(Math.min(1, cw * 0.88 / gp.width), Math.min(1, rowH * 0.8 / gp.height), Math.min(1, 0.012 / gp.depth));
@@ -1175,7 +1430,8 @@
           if (t === 'pb') pbVis(pn, x, y, ex, lab, lsz, null);
           else if (t === 'pbg') pbVis(pn, x, y, ex, lab, lsz, /red/.test(op) ? 'red' : 'black');
           else if (t === 'fire') {
-            addInst('fire', G.box, MAT.fire, pn, x, y, 0.012, 0, 0.05, 0.026, 0.02);
+            var fr = addInst('fire', G.box, MAT.fire, pn, x, y, 0.012, 0, 0.05, 0.026, 0.02);
+            if (CELL.key) genMovCtl(pn, x, y, 'fire', fr, CELL.key, lab + ' FIRE', null, 0, CELL.pn);
             pn.label(lab, x, y + 0.02, lsz * 1.2); pn.label('PUSH', x, y - 0.019, 0.005);
           } else if (t === 'rot') knobVis(pn, x, y - 0.003, lab, lsz, ex.split(','), 0.008);
           else if (t === 'knob') knobVis(pn, x, y - 0.003, lab, lsz, null, 0.009);
@@ -1210,13 +1466,25 @@
         e.set(0, 0, o.rz); q.setFromEuler(e);
         var s = o.s; if (geo !== I.geo) s = [s[0], s[2], s[1]];
         loc.compose(new THREE.Vector3(o.x, o.y, o.z), q, new THREE.Vector3(s[0], s[1], s[2]));
-        mtx.multiplyMatrices(inv, o.g.matrixWorld).multiply(loc);
+        o._pre = new THREE.Matrix4().multiplyMatrices(inv, o.g.matrixWorld); o._im = im; o._i = i; o._flip = geo !== I.geo;
+        mtx.copy(o._pre).multiply(loc);
         im.setMatrixAt(i, mtx);
       });
       im.instanceMatrix.needsUpdate = true;
+      if (/^(tLv|kPt|fire)$/.test(key)) im.frustumCulled = false;
       im.userData.noBake = true;
       self.group.add(im);
     });
+    genMov.forEach(genMove);
+    if (self._radioRedrawAll) self._radioRedrawAll();
+    self._fireMat = MAT.fire;
+  };
+  P._instSet = function (o) {
+    var THREE = this.THREE, q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, o.rz)), s = o.s;
+    if (o._flip) s = [s[0], s[2], s[1]];
+    var loc = new THREE.Matrix4().compose(new THREE.Vector3(o.x, o.y, o.z), q, new THREE.Vector3(s[0], s[1], s[2]));
+    o._im.setMatrixAt(o._i, new THREE.Matrix4().copy(o._pre).multiply(loc));
+    o._im.instanceMatrix.needsUpdate = true;
   };
 
   /* ---------------- 面板布置 ---------------- */
@@ -1520,11 +1788,16 @@
 
   /** 每帧: 开关动画 + 指示灯 (指示灯 10 Hz) */
   P._updateSwitches = function (dt) {
+    if (this._fireMat) {   // 0.6.0: FIRE TEST → 灭火手柄红灯亮
+      var ft = this.fireTest > 0 || this.annTest;
+      if (this.fireTest > 0) this.fireTest -= dt;
+      if (ft !== !!this._fireLit) { this._fireLit = ft; var fmat = this._fireMat; fmat.userData.emissive = ft; if (ft) fmat.color.setHex(0xff2a2a); else fmat.color.copy(fmat.userData.base); }
+    }
     var a = Math.min(1, dt * 16), lampTick = (this._lampT = (this._lampT || 0) + dt) >= 0.1;
     if (lampTick) this._lampT = 0;
     for (var i = 0; i < this.controls.length; i++) {
       var c = this.controls[i];
-      if (c.ann) { if (lampTick) this._drawAnn(c.ann); continue; }
+      if (c.ann) { if (lampTick || this._annForce) this._drawAnn(c.ann); continue; }
       if (c.lamp) {
         if (!lampTick) continue;
         var col = safe(c.fn, 0) || 0;
@@ -1551,10 +1824,11 @@
   };
   /** 列出全部可操作控件 (调试 / 文档) */
   P.listControls = function () {
-    var out = Object.keys(this.ctlById).map(function (id) { return id; });
+    var self = this, out = Object.keys(this.ctlById).filter(function (id) { return !self.ctlById[id].ctl.generic; });
+    var genIds = Object.keys(this.ctlById).filter(function (id) { return self.ctlById[id].ctl.generic; });
     var rects = 0;
     this.clickables.forEach(function (o) { if (o.userData.rects) rects += o.userData.rects.length; });
-    return { meshControls: out, canvasHotspots: rects };
+    return { meshControls: out, canvasHotspots: rects, genericControls: genIds.length, genericIds: genIds };
   };
 
   /* =====================================================================
@@ -1739,7 +2013,7 @@
     var sim = this.sim || {}, p = sim.pfdL || {}, n = sim.ndL || {};
     var ap = (sim.ap && sim.ap.ap) || {};
     return { std: p.baroStd !== false, baro: Math.round(p.baroSetting || 1013), mode: n.mode || 'ROSE', range: n.rangeNm || 40,
-      terr: !!n.terrainOn, wx: n.weatherOn !== false, fd: !!(ap.fd1 || ap.fd2) };
+      terr: !!n.terrainOn, wx: n.weatherOn !== false, fd: !!(ap.fd1 || ap.fd2), ls: this.lsOn !== false };
   };
   P._drawEFIS = function (v) {
     var c = this.efisCanvas, g = c.getContext('2d'), W = c.width, H = c.height, rects = [];
@@ -1789,7 +2063,7 @@
       g.fillStyle = '#e8ebee'; g.font = 'bold 13px sans-serif'; g.fillText(t, x + 28, y + 30);
       if (id) rects.push({ x: x, y: y, w: 56, h: 50, act: { click: id } });
     }
-    btn('FD', 152, 12, v.fd, 'efis-fd'); btn('LS', 214, 12, false, null);
+    btn('FD', 152, 12, v.fd, 'efis-fd'); btn('LS', 214, 12, v.ls, 'efis-ls');
     btn('WXR', 152, 76, v.wx, 'nd-weather'); btn('TERR', 214, 76, v.terr, 'nd-terrain');
     function knob(cx, t, sub) {
       g.fillStyle = '#e8ebee'; g.font = 'bold 12px sans-serif'; g.fillText(sub, cx, 14);
@@ -1808,7 +2082,38 @@
   };
 
   /* ---------------- 下部显示器: 系统页 (SD / 下 EICAS) ---------------- */
+  /* 0.6.0: ECAM 控制板选页 (ENG / BLEED / ELEC / HYD / FUEL / APU / COND / PRESS / DOOR / WHEEL / F/CTL / STS); CLR / RCL 回默认页 */
+  var SD_ORDER = ['ENG', 'BLEED', 'PRESS', 'ELEC', 'HYD', 'FUEL', 'APU', 'COND', 'DOOR', 'WHEEL', 'F/CTL', 'STS'];
+  P._drawSDPage = function (st, page) {
+    var c = this.dispCanvas.lower, g = c.getContext('2d'), W = c.width;
+    var cyan = '#3fd7ff', green = '#3dff6a', white = '#f0f0f0', amber = '#ffb000';
+    var fm = this.sim && this.sim.fm, sys = fm && fm.sys, sw = (sys && sys.sw) || {}, out = (sys && sys.out) || {};
+    var E = st.engines || (fm && fm.getState ? fm.getState().engines : []) || [];
+    g.fillStyle = '#000'; g.fillRect(0, 0, W, c.height); g.textBaseline = 'middle'; g.textAlign = 'left';
+    g.fillStyle = white; g.font = 'bold 28px monospace'; g.fillText(page, 18, 28);
+    g.strokeStyle = white; g.lineWidth = 2; g.beginPath(); g.moveTo(14, 50); g.lineTo(W - 14, 50); g.stroke();
+    var y = 90, self = this;
+    function row(lab, val, ok) { g.font = 'bold 22px monospace'; g.fillStyle = white; g.fillText(lab, 18, y); g.fillStyle = ok === false ? amber : (ok === 'c' ? cyan : green); g.fillText(String(val), 250, y); y += 36; }
+    function onoff(v) { return v ? 'ON' : 'OFF'; }
+    var pumps = sw.pumps || [];
+    switch (page) {
+      case 'ENG': E.forEach(function (e, i) { row('ENG ' + (i + 1) + ' N1/N2', Math.round(e.n1 || 0) + ' / ' + Math.round(e.n2 || 0) + ' %'); row('  EGT / FF', Math.round(e.egt || 0) + '°C / ' + Math.round(e.fuelFlow || 0)); row('  OIL P / T', Math.round(e.oilPressure || 0) + ' PSI / ' + Math.round(e.oilTemp || 0) + '°'); row('  VIB', (e.vibration || 0).toFixed(1)); }); break;
+      case 'BLEED': row('ENG 1 BLEED', onoff((sw.engBleed || [])[0]), !!(sw.engBleed || [])[0]); row('ENG 2 BLEED', onoff((sw.engBleed || [])[1]), !!(sw.engBleed || [])[1]); row('APU BLEED', onoff(sw.apuBleed), 'c'); row('X BLEED', sw.xbleed || 'AUTO', 'c'); row('PACK 1 / 2', onoff(sw.pack1) + ' / ' + onoff(sw.pack2), !!(sw.pack1 && sw.pack2)); break;
+      case 'PRESS': row('CAB ALT', Math.round(Math.min(st.altitudeFt || 0, 8000) * 0.8 / 10) * 10 + ' FT'); row('Δ P', (Math.max(0, (st.altitudeFt || 0) - 2000) / 4800).toFixed(1) + ' PSI'); row('CAB V/S', '0 FT/MIN'); row('PACK 1 / 2', onoff(sw.pack1) + ' / ' + onoff(sw.pack2)); break;
+      case 'ELEC': row('BAT 1 / 2', onoff(sw.bat1) + ' / ' + onoff(sw.bat2), !!(sw.bat1 && sw.bat2)); row('EXT PWR', onoff(sw.extPwr), 'c'); row('AC BUS', out.ac ? 'NORM' : 'OFF', !!out.ac); row('DC BUS', out.dc ? 'NORM' : 'OFF', !!out.dc); row('APU GEN', fm && fm.apuRunning ? 'ON 115V' : 'OFF', 'c'); E.forEach(function (e, i) { row('GEN ' + (i + 1), e.state === 'running' || (e.n2 || 0) > 55 ? '115V 400HZ' : 'OFF', 'c'); }); break;
+      case 'HYD': row('GREEN', sw.hydEng1 && E[0] && (E[0].n2 || 0) > 50 ? '3000 PSI' : '0 PSI', !!sw.hydEng1); row('BLUE', sw.hydElec && out.ac ? '3000 PSI' : '0 PSI', !!sw.hydElec); row('YELLOW', sw.hydEng2 && E[1] && (E[1].n2 || 0) > 50 ? '3000 PSI' : '0 PSI', !!sw.hydEng2); row('PTU', sw.ptu ? 'AUTO' : 'OFF', 'c'); break;
+      case 'FUEL': row('FOB', Math.round(st.fuelKg || 0) + ' KG'); row('L TK PUMPS', onoff(pumps[0]) + ' / ' + onoff(pumps[1]), !!(pumps[0] && pumps[1])); row('CTR TK PUMPS', onoff(pumps[2]) + ' / ' + onoff(pumps[3])); row('R TK PUMPS', onoff(pumps[4]) + ' / ' + onoff(pumps[5]), !!(pumps[4] && pumps[5])); row('F.USED', Math.round(st.fuelUsed || 0) + ' KG'); break;
+      case 'APU': row('MASTER', onoff(sw.apuMaster), 'c'); row('N', Math.round((sys && sys.apu && sys.apu.n) || (fm && fm.apuRunning ? 100 : 0)) + ' %'); row('AVAIL', fm && fm.apuRunning ? 'AVAIL' : '--'); row('BLEED', onoff(sw.apuBleed), 'c'); break;
+      case 'COND': row('CKPT', '22 °C'); row('FWD CAB', '22 °C'); row('AFT CAB', '23 °C'); row('PACK FLOW', 'NORM', 'c'); break;
+      case 'DOOR': ['CABIN 1L', 'CABIN 1R', 'CABIN 2L', 'CABIN 2R', 'FWD CARGO', 'AFT CARGO'].forEach(function (d) { row(d, 'CLOSED'); }); break;
+      case 'WHEEL': row('GEAR', (st.gearPos || 0) > 0.99 ? 'DN LOCKED' : ((st.gearPos || 0) < 0.01 ? 'UP' : 'TRANSIT'), (st.gearPos || 0) > 0.99 || (st.gearPos || 0) < 0.01); row('BRK TEMP', Math.round(st.brakeTemp && st.brakeTemp.length ? Math.max.apply(null, st.brakeTemp) : 0) + ' °C'); row('PARK BRK', st.parkingBrake ? 'ON' : 'OFF', 'c'); row('A/BRK', String(st.autoBrake || 'OFF'), 'c'); break;
+      case 'F/CTL': row('FLAPS', String(st.flapName || '0'), 'c'); row('SPLR', (st.spoilerPos || 0) > 0.05 ? 'EXT' : 'RET'); row('PITCH TRIM', ((st.trim || 0) * 10).toFixed(1) + '°'); row('ELAC / SEC', 'NORM'); break;
+      default: row('STATUS', 'NORMAL'); (out.memo || []).slice(0, 8).forEach(function (m) { row('', m.t || m.text || String(m), 'c'); });
+    }
+    void self;
+  };
   P._drawLower = function (st) {
+    if (this.sdPage && this.L.maker !== 'boeing') return this._drawSDPage(st, this.sdPage);
     var c = this.dispCanvas.lower, g = c.getContext('2d'), W = c.width, H = c.height;
     var boeing = this.L.maker === 'boeing';
     g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
@@ -1860,18 +2165,33 @@
    * @param {object} st  fm.getState()
    * @param {object} data 仪表公共数据 (与 2D 仪表相同, 由 main.js 生成), 可为 null
    */
+  P._mcduRedraw = function (force) {
+    (this.mcdus || []).forEach(function (u) {
+      var sg = u.m.sig();
+      if (!force && sg === u.sig) return;
+      u.sig = sg; u.m.draw(u.c); u.tex.needsUpdate = true;
+    });
+  };
   P.update = function (dt, st, data) {
     if (!this.active || !st) return;
+    var self = this;
+    if (this.mcdus && ((this._mcduT = (this._mcduT || 0) + (dt || 0)) > 0.5)) { this._mcduT = 0; this._mcduRedraw(false); }
     var sim = this.sim;
     // 亮度 (昼夜)
     var day = 1;
     if (sim && sim.env && sim.env.getDayFactor) day = sim.env.getDayFactor();
     var b = Math.max(0.16, Math.min(1, 0.16 + 0.84 * (day === day ? day : 1)));
-    if (Math.abs(b - this._bright) > 0.01) {
-      this._bright = b;
+    // 0.6.0: 夜间驾驶舱灯光 — 面板背光 (INTEG LT 旋钮) 只照亮面板/字符贴图; 泛光 (FLOOD) 与顶灯 (DOME) 照亮整个驾驶舱
+    var lt = this._lightLevels(), nk = 1 - (day === day ? day : 1);
+    var bAll = Math.min(1, Math.max(b, b + nk * (0.10 * lt.flood + 0.16 * lt.dome)));   // 0.6.0: 泛光/顶灯主要由着色器里的点光源给出
+    this._updLit(day === day ? day : 1, lt, nk, bAll);
+    var bInt = Math.min(1, Math.max(bAll, bAll + nk * 0.62 * lt.integ));
+    if (Math.abs(bAll - this._bright) > 0.01 || Math.abs(bInt - (this._brightI || 0)) > 0.01) {
+      this._bright = bAll; this._brightI = bInt;
       this._mats.forEach(function (m) {
         if (m.userData.emissive) return;
-        m.color.copy(m.userData.base).multiplyScalar(b);
+        m.color.copy(m.userData.base).multiplyScalar(m.userData.integ ? bInt : bAll);
+        if (m.userData.integ && nk > 0.3 && lt.integ > 0.05) m.color.multiply(self._warm || (self._warm = new self.THREE.Color(1.0, 0.94, 0.84)));
       });
     }
     // 电源: 断电时整块仪表板黑屏
@@ -1909,6 +2229,26 @@
         this.gearLights.forEach(function (m) { m.color.setHex(gc); });
       }
     }
+  };
+
+  /** 0.6.0: 每帧把舱内光源 (驾驶舱局部坐标) 换算到相机空间 */
+  P._updLit = function (day, lt, nk, bAll) {
+    var U = this._lu, cam = this.sim && this.sim.camera; if (!U || !cam) return;
+    var THREE = this.THREE, k = this.L.k, g = this.group;
+    var vm = this._vm || (this._vm = new THREE.Matrix4());
+    vm.multiplyMatrices(cam.matrixWorldInverse, g.matrixWorld);
+    var t = this._tv || (this._tv = new THREE.Vector3());
+    U.uFl1P.value.set(0, -0.36 * k, -0.56 * k).applyMatrix4(vm);     // 遮光板下沿 → 主仪表板
+    U.uFl2P.value.set(0, -0.28 * k, -0.18 * k).applyMatrix4(vm);     // 顶板前部泛光 → 中央操纵台
+    U.uDomeP.value.set(0, 0.32 * k, 0.02 * k).applyMatrix4(vm);      // 顶灯
+    t.set(0, 0.55, -0.85).normalize().transformDirection(vm);        // 主光: 经风挡从前上方射入
+    U.uKeyV.value.copy(t);
+    U.uKeyI.value = 0.06 + 0.34 * day;
+    U.uAmb.value = 0.80 + 0.06 * (1 - day);
+    U.uFlI.value = nk * lt.flood * 1.5;
+    U.uDomeI.value = nk * lt.dome * 1.1;
+    U.uInvB.value = 1 / Math.max(0.16, bAll);
+    U.uLR.value = 0.55 * k;
   };
 
   /* 断电黑屏: 把 显示器/FCU/EFIS 画布涂黑; 恢复供电时强制重绘 */
@@ -1949,7 +2289,7 @@
     }
     var so = sim && sim.fm && sim.fm.sys ? sim.fm.sys.out : null, dp = so && so.disp;
     try {
-      this.pfd.render(data);
+      this.pfd.render(this.lsOn === false && data && data.ils ? Object.assign({}, data, { ils: null }) : data);
       this.nd.render(data);
       this.ecam.render(data);
       this._drawLower(st);
@@ -2124,7 +2464,17 @@
       this._sig.fcu = '';
       return true;
     }
+    if (a.mcdu && this.mcdus) {   // 0.6.0: MCDU 按键
+      var u = this.mcdus[a.side > 0 ? 1 : 0] || this.mcdus[0];
+      u.m.press(a.mcdu); this._sfx(); this._mcduRedraw(true);
+      return true;
+    }
     if (a.click === 'efis-fd') { this._toggleFD(); this._sig.efis = ''; return true; }
+    if (a.click === 'efis-ls') {   // 0.6.0: LS 按钮 — PFD 显示 / 隐藏 ILS 航向道 / 下滑道刻度
+      this.lsOn = this.lsOn === false; this._sig.efis = ''; this._sfx();
+      if (sim && sim.hud && sim.hud.notify) sim.hud.notify('LS ' + (this.lsOn ? 'ON — PFD 显示 ILS 刻度' : 'OFF'), 'info', 1200);
+      return true;
+    }
     if (a.click) {
       var e = doc && doc.getElementById(a.click);
       if (e) { e.click(); this._sig.fcu = ''; this._sig.efis = ''; return true; }

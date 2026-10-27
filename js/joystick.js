@@ -71,8 +71,10 @@
 
   /** 按设备名猜测设备类型 */
   function guessKind(id) {
+    var lib = FS.DeviceLibrary && FS.DeviceLibrary.lookup(id);
+    if (lib) return lib.kind;
     id = String(id || '');
-    if (/rudder|pedal|tfrp|tpr|t-rudder|skywalker/i.test(id)) return 'pedals';
+    if (/rudder|pedal|tfrp|tpr|t-rudder|t-lcm|skywalker/i.test(id)) return 'pedals';
     // 注意: 不能用 /thr/ —— 会把 "Thrustmaster" 的摇杆也当成油门台
     if (/\bthrottle\b|quadrant|tca q/i.test(id) && !/stick|joystick/i.test(id)) return 'throttle';
     if (/stick|yoke/i.test(id)) return 'stick';
@@ -118,6 +120,8 @@
         if (pad.buttons.length > 3) p.buttons.gearToggle = 3;
       }
     }
+    // 0.6.0: 图马斯特 / 翼胜设备库 (按 VID/PID) 覆盖通用猜测
+    if (FS.DeviceLibrary) FS.DeviceLibrary.apply(p, pad);
     return p;
   }
 
@@ -400,6 +404,7 @@
           d.className = 'joy-dev';
           var h = '<div class="joy-head"><b>' + escapeHtml(pad.id) + '</b>' +
             '<span class="joy-tag">' + (std ? '标准手柄 (自动映射)' : (KIND_NAMES[prof.kind] || '摇杆')) + '</span>' +
+            (prof.device ? '<span class="joy-tag">设备库: ' + prof.device.vendor + ' ' + prof.device.name + ' (默认映射, 待真机核对)</span>' : '') +
             '<label class="joy-chk"><input type="checkbox" data-force="1"' + (prof.forceJoystick ? ' checked' : '') + '> 按摇杆方式映射</label></div>';
           h += '<div class="joy-live" data-live="' + pad.index + '"></div>';
           if (!std) {

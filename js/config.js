@@ -12,7 +12,7 @@
      1. 模拟器全局设置
      --------------------------------------------------------------------- */
   FS.CFG = {
-    version: '0.5.5-beta',
+    version: '0.6.0-beta',
     // beta 0.3: 联网全球地景 (真实高程 + 卫星影像), 菜单 / ?online=0|1 / localStorage 'fs.onlineScenery'
     onlineScenery: (function () {
       try { var v = global.localStorage && global.localStorage.getItem('fs.onlineScenery'); if (v === '0') return false; } catch (e) { /* */ }
@@ -240,6 +240,7 @@
         tailSpan: 12.4, tailArea: 31.0, tailPos: { x: 0, y: 1.1, z: 13.6 }, tailSweep: 30,
         finHeight: 6.0, finArea: 21.5, finPos: { x: 0, y: 2.7, z: 14.6 }, finSweep: 35,
         fuselageRadius: 1.98, noseLength: 5.6, tailConeLength: 8.4, cockpitWindows: 6,
+        eyeOffset: 4.98,                // 0.6.0: 外形模型放大 1.047 后眼位随风挡移动 (原 −13.19 m → −13.80 m)
         enginePos: { x: 5.75, y: -1.45, z: 3.6 },
         engineNacelleLen: 4.4, engineNacelleDia: 2.15, pylonLen: 2.2,
         gear: {
@@ -288,6 +289,7 @@
         finHeight: 6.0, finArea: 21.5, finPos: { x: 0, y: 2.7, z: 14.6 }, finSweep: 35,
         // beta 0.5.3: 改用与 A320neo 相同的 Airnz86 外形模型 (models/ac_a320ceo.js), 起落架/眼位同 A320neo
         fuselageRadius: 1.98, noseLength: 5.6, tailConeLength: 8.4, cockpitWindows: 6,
+        eyeOffset: 4.98,                // 0.6.0: 外形模型放大 1.047 后眼位随风挡移动 (原 −13.19 m → −13.80 m)
         enginePos: { x: 5.75, y: -1.45, z: 3.6 },
         engineNacelleLen: 4.4, engineNacelleDia: 2.15, pylonLen: 2.2,
         gear: {
@@ -914,6 +916,11 @@
   // 中性涂装: 已移除所有航司涂装与标志, 只保留通用配色
   // 通用涂装只有垂尾/腰线/机腹颜色, 无标志文字; 航司涂装由 logo 字段触发垂尾 Canvas 标志绘制
   FS.LIVERIES = [
+    // 0.6.0: 制造商自有涂装 (仅配色, 无标志/文字), 作为各机型默认; 原中性配色仍可选
+    { id: 'house-airbus', name: '空客原厂涂装', types: ['A320neo', 'A320ceo', 'A321neo', 'A330-300', 'A350-900', 'A350-1000'], body: 0xf6f7f9, belly: 0xe3e7eb, accent: 0x00205b, tail: 0x00205b, stripe: 0x3f8fd2 },
+    { id: 'house-boeing', name: '波音原厂涂装', types: ['B737-800', 'B737-MAX8', 'B777-300ER', 'B787-9'], body: 0xf6f7f9, belly: 0x1d4f91, accent: 0x0039a6, tail: 0x0039a6, stripe: 0x6fa8dc },
+    { id: 'house-comac', name: '中国商飞原厂涂装', types: ['C919'], body: 0xf6f7f9, belly: 0xe1e6ea, accent: 0x0058a3, tail: 0x0058a3, stripe: 0x2aa84a },
+    { id: 'house-embraer', name: '巴航工业原厂涂装', types: ['E190'], body: 0xf6f7f9, belly: 0xd9dee4, accent: 0x14285a, tail: 0x14285a, stripe: 0x8a9bb5 },
     { id: 'carbon-fiber', name: '碳纤维', body: 0x24272b, belly: 0x1b1e22, accent: 0x3a4046, tail: 0x1e2124, stripe: 0x555b62 },
     { id: 'classic-white', name: '经典白', body: 0xf4f5f7, belly: 0xdfe3e8, accent: 0x9aa5b1, tail: 0xc3ccd5, stripe: 0x9aa5b1 },
     { id: 'deep-blue', name: '深海蓝', body: 0xf4f5f7, belly: 0xdfe3e8, accent: 0x1d3557, tail: 0x1d3557, stripe: 0x6a8fb3 },
@@ -928,6 +935,7 @@
     { id: 'aurora', name: '极光绿蓝', body: 0xf4f5f7, belly: 0xdfe3e8, accent: 0x2a6f97, tail: 0x2a6f97, stripe: 0x61c3a0 },
     { id: 'military-gray', name: '通用灰', body: 0x8e959c, belly: 0x767c82, accent: 0x5a6068, tail: 0x5a6068, stripe: 0x40454b }
   ];
+  FS.LIVERIES.forEach(function (l) { (l.types || []).forEach(function (t) { if (DB[t]) DB[t].defaultLivery = l.id; }); });   // 0.6.0: 原厂涂装为默认
   // 旧版 (v0.1 / beta 0.2) 涂装 id 的兼容映射, 保证旧链接 ?livery= 仍可用
   FS.LIVERY_ALIASES = {
     'airbus-house': 'classic-white', ces: 'deep-blue', cca: 'classic-red-tail', csh: 'sky-blue', cxa: 'lake-teal',

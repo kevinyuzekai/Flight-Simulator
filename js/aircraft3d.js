@@ -109,10 +109,37 @@
   /* ---------------------------------------------------------------------
      1b. 真实外形模型资源 (models/*.js 以 base64 内嵌, file:// 下也能直接加载)
      --------------------------------------------------------------------- */
+  /* 0.6.0: 外形模型比例修正 (实测包围盒 / 真实尺寸)。
+     A320 (Airnz86 模型) 原为 翼展 33.81 / 机长 36.21 / 高 11.25 m, 比真机 (35.80 / 37.57 / 11.76) 小约 4–6%;
+     统一放大 1.047 → 35.40 / 37.91 / 11.78 m (三项误差均 ≤ 1.1%), 不改网格精度。起落架 / 轮底 / 枢轴同比例。 */
+  var ASSET_SCALE = { 'A320neo': 1.047, 'A320ceo': 1.047 };
+  FS.ASSET_SCALE = ASSET_SCALE;
+  function scaleAsset(a, k) {
+    if (!a || !k || k === 1 || a._scaledBy) return a;
+    var seen = scaleAsset.seen || (scaleAsset.seen = new WeakSet());   // 别名资源 (A320ceo) 共享子对象, 只缩放一次
+    (function walk(o, key) {
+      if (!o || typeof o !== 'object' || seen.has(o)) return;
+      seen.add(o);
+      if (Array.isArray(o)) {
+        if (key === 'pivot' && typeof o[0] === 'number') { for (var i = 0; i < o.length; i++) o[i] *= k; return; }
+        o.forEach(function (v) { walk(v, ''); }); return;
+      }
+      if (key === 'credit') return;
+      if (typeof o.pos === 'string' && o.vcount !== undefined) { if (!o._scale) o._scale = k; return; }
+      for (var p in o) {
+        if (!o.hasOwnProperty(p) || p.charAt(0) === '_') continue;
+        if (p === 'wheelBottom' && typeof o[p] === 'number') o[p] *= k;
+        else if (key === 'clip' && typeof o[p] === 'number') o[p] *= k;
+        else walk(o[p], p);
+      }
+    })(a, '');
+    a._scaledBy = k;
+    return a;
+  }
   function assetFor(typeKey) {
     if (FS.CFG && FS.CFG.proceduralModels) return null;          // 全局开关: 强制程序化
     var A = FS.ModelAssets;
-    if (A && A[typeKey]) return A[typeKey];
+    if (A && A[typeKey]) return scaleAsset(A[typeKey], ASSET_SCALE[typeKey]);
     // beta 0.3.2: 无独立模型时, 用相近机型真实外形作基底 (中性涂装, 标注 hybrid)
     var ALIAS = {
       'B737-MAX8': 'B737-800'   // MAX 外形接近 NG; 发动机/小翼仍由程序化部件区分不足时仅外形近似
@@ -147,7 +174,25 @@
       uv: pk.uv ? new Float32Array(b64ToBuffer(pk.uv)) : null,   // 无贴图资产可省去 UV
       idx: new Uint16Array(b64ToBuffer(pk.idx))
     };
+    if (pk._scale && pk._scale !== 1) { var P = pk._dec.pos; for (var i = 0; i < P.length; i++) P[i] *= pk._scale; }
     return pk._dec;
+  }
+
+  // 0.6.0: 多贴图资产 (asset.textures = data URI 列表, 部件 .tex 为索引); 按资产缓存 THREE.Texture
+  function assetPartTexture(asset, idx) {
+    if (idx === undefined || idx === null || !asset.textures || !asset.textures[idx]) return null;
+    if (!global.document || typeof global.Image !== 'function') return null;
+    var cache = asset._texObjs || (asset._texObjs = []);
+    if (cache[idx]) return cache[idx];
+    var img = new global.Image();
+    var t = new THREE.Texture(img);
+    img.onload = function () { t.needsUpdate = true; };
+    img.src = asset.textures[idx];
+    if (THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace; else t.encoding = THREE.sRGBEncoding;
+    t.anisotropy = 4;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    cache[idx] = t;
+    return t;
   }
 
   function geoFromPacked(pk) {
@@ -1093,6 +1138,20 @@
       });
       mats.push(matSkin);
       var body = new THREE.Mesh(geoFromPacked(asset.body), matSkin);
+      // 0.6.0: 无贴图机模 (A320neo/ceo, A330, C919, E190) — 原厂涂装的垂尾颜色用着色器按机身局部坐标区域上色 (零贴图开销)
+      if (!tex && !asset.bakedLivery && lv.tail !== undefined && lv.tail !== lv.body && body.geometry) {
+        body.geometry.computeBoundingBox();
+        var bb = body.geometry.boundingBox, hY = bb.max.y - bb.min.y, lZ = bb.max.z - bb.min.z;
+        var finY = bb.min.y + 0.60 * hY, finZ = bb.min.z + 0.74 * lZ, tailCol = new THREE.Color(lv.tail);
+        matSkin.onBeforeCompile = function (sh) {
+          sh.uniforms.uFin = { value: new THREE.Vector2(finY, finZ) };
+          sh.uniforms.uTailCol = { value: tailCol };
+          sh.vertexShader = 'varying vec3 vLocP;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvLocP = position;');
+          sh.fragmentShader = 'varying vec3 vLocP;\nuniform vec2 uFin;\nuniform vec3 uTailCol;\n' + sh.fragmentShader.replace('#include <color_fragment>',
+            '#include <color_fragment>\nif (vLocP.y > uFin.x && vLocP.z > uFin.y) diffuseColor.rgb = uTailCol;');
+        };
+        matSkin.customProgramCacheKey = function () { return 'finTint'; };
+      }
       body.name = 'assetBody';
       group.add(body);
       parts.fuselage = body;
@@ -1109,7 +1168,7 @@
         for (var e = 0; e < exs.length; e++) {
           var ex = exs[e];
           var matEx = new THREE.MeshStandardMaterial({
-            color: ex.color,
+            color: ex.color, map: assetPartTexture(asset, ex.tex),
             metalness: ex.metalness, roughness: ex.roughness,
             // 空心壳体部件 (如短舱) 需要双面渲染, 否则从进气口能看到"透明"
             side: ex.doubleSide ? THREE.DoubleSide : THREE.FrontSide, envMapIntensity: 1.15
@@ -1140,7 +1199,7 @@
         var fmat = matSkin;
         if (f.color !== undefined) {                 // 风扇可自带材质 (如 A330 的深灰叶片)
           fmat = new THREE.MeshStandardMaterial({
-            color: f.color,
+            color: f.color, map: assetPartTexture(asset, f.tex),
             metalness: f.metalness === undefined ? 0.6 : f.metalness,
             roughness: f.roughness === undefined ? 0.4 : f.roughness,
             side: f.doubleSide ? THREE.DoubleSide : THREE.FrontSide,
@@ -1563,8 +1622,8 @@
       rig.clipPlanes = clipList;
       function partMesh(p, plane) {
         var mt = new THREE.MeshStandardMaterial({
-          color: p.color, metalness: p.metalness, roughness: p.roughness,
-          side: THREE.FrontSide, envMapIntensity: 1.1
+          color: p.color, map: assetPartTexture(asset, p.tex), metalness: p.metalness, roughness: p.roughness,
+          side: p.doubleSide ? THREE.DoubleSide : THREE.FrontSide, envMapIntensity: 1.1
         });
         if (plane) mt.clippingPlanes = [plane];
         mats.push(mt);

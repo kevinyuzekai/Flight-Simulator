@@ -15,9 +15,7 @@ rm -rf $B/msix $B/favicon-16.png $B/skyroute_app_icon.ico $B/skyroute_app_icon_1
   $B/skyroute_app_icon_120.png $B/skyroute_app_icon_48.png $B/skyroute_icon_transparent.png $B/skyroute_icon_white.png $B/skyroute_logo.png
 python3 - <<'PY'
 import json
-a=open('app/models/ac_a320ceo.js').read(); b=open('app/models/ac_a320neo.js').read()
-assert a[a.index('FS.ModelAssets'):].replace('"A320ceo"','"A320neo"')==b[b.index('FS.ModelAssets'):], 'A320ceo != A320neo'
-open('app/models/ac_a320ceo.js','w').write('(function(g){var FS=g.FS;var a=JSON.parse(JSON.stringify(FS.ModelAssets["A320neo"]));a.key="A320ceo";FS.ModelAssets["A320ceo"]=a;})(typeof window!=="undefined"?window:globalThis);\n')
+# 0.6.0: ac_a320ceo.js 已在源码中改为别名 (共享 A320neo 几何)
 # manifest 仅用于网页 PWA, 其图标已删
 m='app/assets/brand/manifest.webmanifest'; j=json.load(open(m)); j['icons']=[i for i in j.get('icons',[]) if '512' not in i['src'] and '1024' not in i['src']]; open(m,'w').write(json.dumps(j,ensure_ascii=False))
 PY

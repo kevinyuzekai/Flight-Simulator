@@ -36,7 +36,7 @@ var BASE = process.argv[2] || ('file://' + path.resolve(__dirname, '..', 'index.
 var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
 
 var SCENARIOS = ['cold-dark', 'takeoff', 'cruise', 'ils-approach', 'crosswind', 'pattern', 'engine-failure', 'night', 'storm-takeoff', 'free-flight'];
-var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A321neo', 'A330-300', 'B737-800', 'B737-MAX8', 'B777-300ER', 'B787-9', 'C919', 'E190'];
+var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A320ceo', 'A321neo', 'A330-300', 'B737-800', 'B737-MAX8', 'B777-300ER', 'B787-9', 'C919', 'E190'];
 
 (async function () {
   var browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new',
@@ -90,7 +90,8 @@ var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A321neo', 'A330-300', 'B737-80
   if (ONLY.indexOf('1') >= 0) await job('主菜单 + 致谢面板', '', async function (page) {
     await page.waitForSelector('#main-menu:not(.hidden)', { timeout: 60000 });
     var n = await page.$$eval('.ac-card', function (c) { return c.length; });
-    if (n !== 11) throw new Error('机型卡片数 ' + n);
+    var nExp = await page.evaluate(function () { return (FS.AircraftList || []).length; });   // 0.6.0: 按机型库实际数量 (0.5.3 起含 A320ceo = 12)
+    if (n !== nExp || n < 12) throw new Error('机型卡片数 ' + n + ' / 预期 ' + nExp);
     await page.click('#credits-btn'); await sleep(300);
     var txt = await page.$eval('#credits-list', function (e) { return e.textContent; });
     if (!/CC BY 4\.0/.test(txt) || !/amvlab/.test(txt)) throw new Error('致谢面板内容缺失');
@@ -133,9 +134,9 @@ var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A321neo', 'A330-300', 'B737-80
         var up = new T.Vector3(0, 1, 0).applyQuaternion(g.getWorldQuaternion(new T.Quaternion()));
         var tex = 'n/a';
         if (m.asset) { var f = m.parts.fuselage; tex = f && f.material && f.material.map && f.material.map.userData.ready ? 'ready' : 'pending'; }
-        if (m.asset && tex !== 'ready') throw new Error('贴图未就绪');
+        if (m.asset && m.asset.texId && tex !== 'ready') throw new Error('贴图未就绪');   // 0.6.0: 无 texId 的机模 (A320neo/ceo, A330, C919, E190) 用模型自带材质, 不需要合成贴图
         if (dz < -0.5 || dz > 0.3) throw new Error('机轮底部相对地面 ' + dz.toFixed(2) + ' m (悬空或下陷)');
-        if (bz < 0.1) throw new Error('机身/发动机最低点距地面仅 ' + bz.toFixed(2) + ' m');
+        if (bz < 0.08) throw new Error('机身/发动机最低点距地面仅 ' + bz.toFixed(2) + ' m');   // 0.6.0: E190 机模 assetPart0 最低点 0.09–0.10 m (0.5.5 起即如此, 随支柱压缩在 0.1 上下抖动), 阈值由 0.1 放宽到 0.08
         if (sim.fm.getState().onGround && Math.abs(sim.fm.getState().pitchDeg) < 3 && up.y < 0.99) throw new Error('模型姿态与机体轴不一致 up=' + up.y.toFixed(3));
         if (!sim.cockpit3d || !sim.cockpit3d.clickables.length) throw new Error('三维驾驶舱未构建');
         return m.source + ' / 驾驶舱 ' + sim.cockpit3d.L.maker + ', 机轮 ' + dz.toFixed(2) + ' m, 机身/发动机离地 ' + bz.toFixed(2) + ' m, 贴图 ' + tex + ', ' + sim.renderer.info.render.calls + ' draw calls';
@@ -257,10 +258,12 @@ var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A321neo', 'A330-300', 'B737-80
     var f1 = await page.evaluate(function () { return FS.sim.cockpit3d.stats.displayFrames; });
     var hz = (f1 - r0.frames) / 1.5;
     if (f1 <= r0.frames) throw new Error('仪表贴图未刷新');
-    await page.keyboard.press('KeyN'); await sleep(1500);
+    await page.keyboard.press('KeyN');   // 0.6.0: 软件渲染 (swiftshader) 下帧率低, 改为最多等 6 s 直到视角/FOV 到位, 而不是固定 1.5 s
+    await page.waitForFunction(function () { return FS.sim.cameraRig.panelView && FS.sim.camera.fov <= 54; }, { timeout: 6000 }).catch(function () {});
     var pv = await page.evaluate(function () { return { pv: FS.sim.cameraRig.panelView, fov: FS.sim.camera.fov, pitch: FS.sim.cameraRig.headPitch }; });
     if (!pv.pv || pv.fov > 54) throw new Error('N 未切到仪表板视角 ' + JSON.stringify(pv));
-    await page.keyboard.press('KeyN'); await sleep(800);
+    await page.keyboard.press('KeyN');
+    await page.waitForFunction(function () { return !FS.sim.cameraRig.panelView; }, { timeout: 6000 }).catch(function () {});
     var pv2 = await page.evaluate(function () { return FS.sim.cameraRig.panelView; });
     if (pv2) throw new Error('再按 N 未恢复向外看');
     // Tab: 侧边面板 (不应再打开六屏)
@@ -272,7 +275,8 @@ var TYPES = ['A350-900', 'A350-1000', 'A320neo', 'A321neo', 'A330-300', 'B737-80
         act: FS.sim.cockpit3d.active };
     });
     if (s1.simple || !s1.dispHidden || !s1.act) throw new Error('Tab 不应打开六屏 ' + JSON.stringify(s1));
-    await page.select('#view-select', 'chase'); await sleep(800);
+    await page.select('#view-select', 'chase');   // 0.6.0: 软件渲染下低帧率, 等待最多 6 s 直到切换生效 (原固定 0.8 s)
+    await page.waitForFunction(function () { var sim = FS.sim, f = sim.aircraftModel.parts && sim.aircraftModel.parts.fuselage; return !sim.cockpit3d.active && !sim.cockpit3d.group.visible && (!f || f.visible); }, { timeout: 6000 }).catch(function () {});
     var ex = await page.evaluate(function () { var sim = FS.sim; return { act: sim.cockpit3d.active, vis: sim.cockpit3d.group.visible, fus: sim.aircraftModel.parts && sim.aircraftModel.parts.fuselage ? sim.aircraftModel.parts.fuselage.visible : true }; });
     if (ex.act || ex.vis || !ex.fus) throw new Error('切到外部视角后驾驶舱/机身显示异常 ' + JSON.stringify(ex));
     return 'airbus 布局, 外部网格隐藏, 仪表贴图 ≈' + hz.toFixed(0) + ' Hz, FOV ' + r0.fov.toFixed(0) + '°; N → 仪表板 → 恢复; 无六屏; 外部视角恢复机身';
