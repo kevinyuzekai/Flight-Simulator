@@ -8,11 +8,30 @@
 包含 11 种民航机型、77 个真实机场、10 个飞行场景和完整的玻璃座舱航电。
 
 不需要安装任何东西，不需要构建，**离线即可完整游玩**；联网时可选加载全球真实卫星影像与地形（beta 0.3）。
-**最新版本：beta 0.5.5**（[发布页](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.5.5)）——网页版 [`SkyRoute-beta_v0.5.5.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.5.5/SkyRoute-beta_v0.5.5.zip)；Windows **便携版 zip** [`SkyRoute-Windows-portable-beta_v0.5.5-x64.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.5.5/SkyRoute-Windows-portable-beta_v0.5.5-x64.zip)（约 8 MB，基于系统 WebView2）；[Microsoft Store](https://apps.microsoft.com/detail/9P25XZZM8JXT)（Windows 上可直接打开 `ms-windows-store://pdp/?productid=9P25XZZM8JXT`） 当前上架版本为 beta 0.5.5（免费）。本版 **无 NSIS Setup.exe，Windows 仅提供便携版 zip**（旧版「如有 Setup」可安装）。旧版本（beta 0.5.2 / 0.5.1 / 0.5.0 / 0.4.2 / 0.4.1 / 0.4 / 0.3.x）仍保留在 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)。
+**最新版本：beta 0.6.0**（[发布页](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.6.0)）——网页版 [`SkyRoute-beta_v0.6.0.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.6.0/SkyRoute-beta_v0.6.0.zip)；Windows **便携版 zip** [`SkyRoute-Windows-portable-beta_v0.6.0-x64.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.6.0/SkyRoute-Windows-portable-beta_v0.6.0-x64.zip)（约 9 MB，基于系统 WebView2）；[Microsoft Store](https://apps.microsoft.com/detail/9P25XZZM8JXT)（Windows 上可直接打开 `ms-windows-store://pdp/?productid=9P25XZZM8JXT`） 当前上架版本为 beta 0.5.5（免费），beta 0.6.0 正在商店审核中。本版 **无 NSIS Setup.exe，Windows 仅提供便携版 zip**（旧版「如有 Setup」可安装）。**beta 0.6.1** 的源码已在本仓库，安装包将于 **2026-11-03 00:00（北京时间）** 发布。旧版本（beta 0.5.5 / 0.5.4 / 0.5.2 / 0.5.1 / 0.5.0 / 0.4.2 / 0.4.1 / 0.4 / 0.3.x）仍保留在 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)。
 
 ![主菜单](screenshots/01-主菜单.png)
 
 ---
+
+## beta 0.6.1 更新（驾驶舱光照修正、E190 起落架、告警声、设备与机场）
+
+> 源码已推送；安装包将于 **2026-11-03 00:00（北京时间）** 发布在 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)，届时提供下载。
+
+- **驾驶舱（全部机型）**：修复着色器中的白色光斑；显示屏加上遮光罩、内倒角边框和角螺钉（不增加贴图）。
+- **E190 起落架**：机模自带起落架放出 0.35 m，地面基准修正，机轮贴地，发动机短舱离地约 0.39 m。
+- **告警声**（新增 `js/alerts.js`，WebAudio + 系统语音合成，无音频文件）：主警告 / 主告诫及可点击确认的告警灯；AP 断开「骑兵号」循环直到确认；GPWS 语音（SINK RATE、TERRAIN / PULL UP、DON'T SINK、TOO LOW GEAR / FLAPS、GLIDESLOPE）与 BANK ANGLE；空客 / 波音无线电高度报数与 RETARD；失速；超速（波音响板）；火警铃；起飞形态警告。
+- **外设**：补全 TCA Quadrant（Airbus / Boeing）与 TCA Yoke 的按钮默认设置；新增 T.Flight Stick X 与 HOTAS Cougar；未知 WINWING / TCA 设备按名称识别；新增 7 个可绑定功能（新设备条目尚待真机验证）。
+- **机场**：新增 10 个 OSM 立体机场布局（EHAM、LEMD、LIRF、LSZH、LTFM、KJFK、KLAX、KSFO、KORD、YSSY），共 54 个。
+- 网页版打包改为无损压缩（只去空白与注释）。
+
+## beta 0.6.0 更新（原厂涂装、737 MAX 8 新机模、驾驶舱光照 v2）
+
+下载：[发布页](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.6.0) · [`SkyRoute-beta_v0.6.0.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.6.0/SkyRoute-beta_v0.6.0.zip)（网页版）· [`SkyRoute-Windows-portable-beta_v0.6.0-x64.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.6.0/SkyRoute-Windows-portable-beta_v0.6.0-x64.zip)（Windows 便携版，无 NSIS Setup.exe）
+
+- **原厂涂装**（波音 / 空客 / 商飞 / 巴航）成为各机型默认涂装，原中性配色仍可选。
+- **B737 MAX 8** 换用新外形模型，重绘波音原厂涂装，自带可收放起落架。
+- **驾驶舱真实感 v2**：所有材质共用光照着色器（漫反射、高光、菲涅尔、凹凸与粗糙度），泛光 / 顶灯改为点光源，烘焙环境光遮蔽（遮光罩、脚踏区、侧壁）。
 
 ## beta 0.5.5 更新（A330 起落架、787/A350 前起落架位置、声音修复）
 
@@ -242,6 +261,8 @@
 
 ## 目录
 
+- [beta 0.6.1 更新（驾驶舱光照修正、E190 起落架、告警声、设备与机场）](#beta-061-更新驾驶舱光照修正e190-起落架告警声设备与机场)
+- [beta 0.6.0 更新（原厂涂装、737 MAX 8 新机模、驾驶舱光照 v2）](#beta-060-更新原厂涂装737-max-8-新机模驾驶舱光照-v2)
 - [beta 0.5.5 更新（A330 起落架、787/A350 前起落架位置、声音修复）](#beta-055-更新a330-起落架787a350-前起落架位置声音修复)
 - [beta 0.5.4 更新（WebView2 外壳、A320 精细机模与起落架）](#beta-054-更新webview2-外壳a320-精细机模与起落架)
 - [beta 0.5.2 更新（多语言界面）](#beta-052-更新多语言界面)
@@ -273,7 +294,7 @@
 
 ## 快速开始
 
-**Windows：** 下载 [beta 0.5.5 Release](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.5.5) 中的便携版 `SkyRoute-Windows-portable-beta_v0.5.5-x64.zip` 解压运行（**本版无 NSIS Setup.exe，仅便携版 zip**；旧版「如有 Setup」才可安装。未签名，SmartScreen 提示时选「仍要运行」。或从 [Microsoft Store](https://apps.microsoft.com/detail/9P25XZZM8JXT)（Windows 上可直接打开 `ms-windows-store://pdp/?productid=9P25XZZM8JXT`） 安装（当前上架 beta 0.5.5））
+**Windows：** 下载 [beta 0.6.0 Release](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.6.0) 中的便携版 `SkyRoute-Windows-portable-beta_v0.6.0-x64.zip` 解压运行（**本版无 NSIS Setup.exe，仅便携版 zip**；旧版「如有 Setup」才可安装。未签名，SmartScreen 提示时选「仍要运行」。或从 [Microsoft Store](https://apps.microsoft.com/detail/9P25XZZM8JXT)（Windows 上可直接打开 `ms-windows-store://pdp/?productid=9P25XZZM8JXT`） 安装（当前上架 beta 0.5.5，beta 0.6.0 审核中））。beta 0.6.1 将于 2026-11-03 00:00（北京时间）发布。
 
 **macOS：** 双击 `启动游戏.command`
 
