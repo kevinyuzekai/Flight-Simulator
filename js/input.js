@@ -79,7 +79,6 @@
     toggleHud: ['Shift+KeyH'],
     timeScaleUp: ['Shift+KeyT'],
     mute: ['Shift+KeyM'],
-    masterAck: ['Shift+KeyW'],                          // 0.6.1: 主警告 / 主警戒 确认消音
     toggleHelp: ['F1', 'Shift+Slash'],                 // F1 或 ?
     screenshot: ['F2'],
 

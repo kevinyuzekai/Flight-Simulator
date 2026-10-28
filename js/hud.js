@@ -948,10 +948,8 @@
 
     // 告警主灯
     var mw = $('master-warning'), mc = $('master-caution');
-    var AL = FS.Alerts;
-    if (mw && !mw._ackBound) { mw._ackBound = mc._ackBound = true; var ak = function () { if (FS.Alerts) FS.Alerts.ack(); }; mw.addEventListener('click', ak); if (mc) mc.addEventListener('click', ak); }
-    if (mw) mw.classList.toggle('lit', !!(st.masterWarning || AL && AL.lamps.mw));
-    if (mc) mc.classList.toggle('lit', !!(st.overspeed || st.configWarning || st.stallWarning || AL && AL.lamps.mc));
+    if (mw) mw.classList.toggle('lit', st.masterWarning);
+    if (mc) mc.classList.toggle('lit', st.overspeed || st.configWarning || st.stallWarning);
   };
 
   HUD.prototype._updateObjectives = function (st) {

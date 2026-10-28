@@ -36,15 +36,7 @@
     { id: 'flapsUp', name: '襟翼 收', edge: true },
     { id: 'flapsDown', name: '襟翼 放', edge: true },
     { id: 'viewNext', name: '切换视角', edge: true },
-    { id: 'throttleToggleRev', name: '反推', edge: true },
-    // 0.6.1: 设备库用到的更多按钮功能 (都走 input.js 的同名动作)
-    { id: 'apThrottle', name: 'A/THR 断开 / 接通', edge: true },
-    { id: 'apToggle', name: 'AP 接通 / 断开', edge: true },
-    { id: 'speedbrake', name: '减速板', edge: true },
-    { id: 'parkingBrake', name: '停留刹车', edge: true },
-    { id: 'throttleTOGA', name: 'TOGA', edge: true },
-    { id: 'masterAck', name: '主警告 / 主警戒 确认', edge: true },
-    { id: 'viewCockpit', name: '驾驶舱视角', edge: true }
+    { id: 'throttleToggleRev', name: '反推', edge: true }
   ];
 
   /* 设备类型 -> 默认参与合成的轴功能 (其它功能只有手动绑定后才参与) */
@@ -99,8 +91,7 @@
         brakeL: { axis: -1, invert: false }, brakeR: { axis: -1, invert: false },
         hat: { axis: n > 9 ? 9 : -1, invert: false } },
       deadzone: 0.05, sensitivity: 1.0, curve: 1.3,
-      buttons: { apDisconnect: -1, ptt: -1, brakes: -1, gearToggle: -1, flapsUp: -1, flapsDown: -1, viewNext: -1, throttleToggleRev: -1,
-        apThrottle: -1, apToggle: -1, speedbrake: -1, parkingBrake: -1, throttleTOGA: -1, masterAck: -1, viewCockpit: -1 },
+      buttons: { apDisconnect: -1, ptt: -1, brakes: -1, gearToggle: -1, flapsUp: -1, flapsDown: -1, viewNext: -1, throttleToggleRev: -1 },
       guessed: true, schema: SCHEMA
     };
     p.kind = guessKind(id);

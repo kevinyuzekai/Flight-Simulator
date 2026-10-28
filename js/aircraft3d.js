@@ -891,7 +891,6 @@
         asset.gear.mainL ? asset.gear.mainL.wheelBottom : 0, asset.gear.mainR ? asset.gear.mainR.wheelBottom : 0);
     }
 
-    if (asset && asset.gearExtend) groundY -= asset.gearExtend - (asset.gearFloat || 0);   // 0.6.1: 支柱加长后机轮落在跑道上
     // ---- 垂尾/平尾 ----
     var finTaper = 0.36, stabTaper = 0.38;
     var finBase = tailTop(d.finPos.z) - 0.30;
@@ -935,8 +934,6 @@
   function buildAircraft(ac, opts, shared) {
     var d = ac.dims;
     var asset = opts.asset || null;
-    // 0.6.1: E190 支柱加长 0.35 m → 机轮压在跑道上、短舱离地 ≈0.38 m (巴航 APM 地面间隙表)
-    if (asset && asset.key === 'E190' && asset.gearExtend === undefined) { asset.gearExtend = 0.35; asset.gearFloat = 0.06; }
     var plan = makePlan(ac, asset);
     var Q = qOf(opts.quality);
     var parts = {};
@@ -1643,21 +1640,6 @@
         container.add(wg);
         return wg;
       }
-      // 0.6.1: E190 自制模型短舱比机轮底低得不合理 (离地仅 ~0.03 m) → 支柱加长 gearExtend 米:
-      //        轮胎整体下移, 支柱在挂点以下按比例拉长, 舱门不动 (几何无损变换, 无新资源)
-      function extendLeg(gr, ext) {
-        gr.children.forEach(function (m) {
-          if (!m.isMesh) return;
-          var pa = m.geometry.attributes.position, c = m.material.color.getHex(), i, mn = 0;
-          for (i = 0; i < pa.count; i++) mn = Math.min(mn, pa.getY(i));
-          if (c === 0x1d1e20) { for (i = 0; i < pa.count; i++) pa.setY(i, pa.getY(i) - ext); }
-          else if (c === 0xb9bdc3 && mn < -0.1) {
-            var tb = mn + 0.55;   // 轮轴附近 (底部 0.55 m) 整体下移, 其上到挂点之间线性拉长
-            for (i = 0; i < pa.count; i++) { var y = pa.getY(i); pa.setY(i, y <= tb ? y - ext : (y < 0 ? y - ext * (y / tb) : y)); }
-          } else return;
-          pa.needsUpdate = true; m.geometry.computeBoundingBox(); m.geometry.computeBoundingSphere();
-        });
-      }
       rig.gearDoors = []; rig.gearLinks = []; rig.bogies = [];
       var defs = [
         { key: 'nose', name: 'gearNose', wheelArr: 'wheelNose', baseY: 'noseBaseY' },
@@ -1673,7 +1655,6 @@
         g.position.set(A.pivot[0], A.pivot[1], A.pivot[2]);
         group.add(g);
         addParts(g, A.parts, plane);
-        if (asset.gearExtend) extendLeg(g, asset.gearExtend);
         parts[def.name] = g; rig[def.name] = g;
         rig[def.baseY] = A.pivot[1];
         if (A.wheels && A.wheels.length && A.wheelBottom !== undefined) {   // 轮底探测点 (组局部坐标)
