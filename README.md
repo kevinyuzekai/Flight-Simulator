@@ -5,7 +5,7 @@
 > 本项目原名「飞行模拟器 · Flight Simulator」，自 beta 0.3 起更名为 **天际航线 SkyRoute**（GitHub 仓库名保持 `Flight-Simulator` 不变）。
 
 一个**网页版民航客机飞行模拟器**。用真实六自由度飞行动力学驱动，
-包含 11 种民航机型、77 个真实机场、10 个飞行场景和完整的玻璃座舱航电。
+包含 12 种民航机型、77 个真实机场、10 个飞行场景和完整的玻璃座舱航电。
 
 不需要安装任何东西，不需要构建，**离线即可完整游玩**；联网时可选加载全球真实卫星影像与地形（beta 0.3）。
 **最新版本：beta 0.6.0**（[发布页](https://github.com/kevinyuzekai/Flight-Simulator/releases/tag/beta_v0.6.0)）——网页版 [`SkyRoute-beta_v0.6.0.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.6.0/SkyRoute-beta_v0.6.0.zip)；Windows **便携版 zip** [`SkyRoute-Windows-portable-beta_v0.6.0-x64.zip`](https://github.com/kevinyuzekai/Flight-Simulator/releases/download/beta_v0.6.0/SkyRoute-Windows-portable-beta_v0.6.0-x64.zip)（约 9 MB，基于系统 WebView2）；[Microsoft Store](https://apps.microsoft.com/detail/9P25XZZM8JXT)（Windows 上可直接打开 `ms-windows-store://pdp/?productid=9P25XZZM8JXT`） 当前上架版本为 beta 0.5.5（免费），beta 0.6.0 正在商店审核中。本版 **无 NSIS Setup.exe，Windows 仅提供便携版 zip**（旧版「如有 Setup」可安装）。**beta 0.6.1** 的源码已在本仓库，安装包将于 **2026-11-03 00:00（北京时间）** 发布。旧版本（beta 0.5.5 / 0.5.4 / 0.5.2 / 0.5.1 / 0.5.0 / 0.4.2 / 0.4.1 / 0.4 / 0.3.x）仍保留在 [Releases](https://github.com/kevinyuzekai/Flight-Simulator/releases)。
@@ -611,7 +611,7 @@ Xbox / PS 布局：左摇杆 = 驾驶杆，`LB` / `RB` 或右摇杆横向 = 方�
 ├── vendor/three.min.js      本地 three.js（无需联网）
 └── js/
     ├── utils.js             数学 / 标准大气 / 地理投影 / 噪声
-    ├── config.js            11 种机型的几何、质量、发动机、气动数据
+    ├── config.js            12 种机型的几何、质量、发动机、气动数据
     ├── airports.js          77 个机场 / 462 跑道 / 416 ILS 的真实数据
     ├── flightmodel.js       六自由度飞行动力学 + 发动机 + 起落架
     ├── autopilot.js         自动驾驶（AP/FD/A-THR）+ 飞行管理（LNAV/VNAV）
